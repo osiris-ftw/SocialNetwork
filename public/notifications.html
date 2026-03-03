@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Notifications - Social Network</title>`n    <link rel="icon" href="data:,">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-content">
+            <a href="feed.html" class="nav-brand">Social Network</a>
+            <div class="nav-links">
+                <a href="feed.html">Feed</a>
+                <a href="search.html">Search</a>
+                <a href="messaging.html">Messages <span id="msg-badge" class="badge"></span></a>
+                <a href="notifications.html" class="active">Notifications <span id="notif-badge" class="badge"></span></a>
+                <a href="javascript:void(0)" id="my-profile-link">Profile</a>
+                <a href="javascript:void(0)" onclick="logout()">Logout</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container" style="max-width:700px;">
+        <div class="notifications-header">
+            <h2>Notifications</h2>
+            <button class="btn btn-secondary btn-sm" onclick="markAllRead()" id="mark-all-btn" style="display:none;">
+                Mark all as read
+            </button>
+        </div>
+
+        <div class="loading" id="notif-loading">Loading notifications…</div>
+        <div id="notifications-container" class="notifications-list"></div>
+
+        <button id="load-more-notif-btn" class="btn btn-secondary" style="display:none; margin: 10px auto;" onclick="loadMoreNotifications()">
+            Load More
+        </button>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:8000';
+        const WS_URL = 'ws://localhost:8081';
+        let token = localStorage.getItem('token');
+        let currentUser = JSON.parse(localStorage.getItem('user') || '{}');
+        let ws = null;
+        let notifOffset = 0;
+        const notifLimit = 20;
+        let hasMoreNotifs = true;
+
+        if (!token) { window.location.href = 'login.html'; }
+
+        if (currentUser.username) {
+            document.getElementById('my-profile-link').href = `profile.html?username=${currentUser.username}`;
+        }
+
+        async function apiCall(endpoint, options = {}) {
+            const headers = { 'Authorization': `Bearer ${token}`, ...options.headers };
+            const response = await fetch(`${API_URL}${endpoint}`, { ...options, headers });
+            if (response.status === 401) { logout(); return null; }
+            return response.json();
+        }
+
+        function logout() {
+            if (ws) ws.close();
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            window.location.href = 'login.html';
+        }
+
+        function avatarHtml(avatarUrl, username, size = 44) {
+            const initial = (username || '?')[0].toUpperCase();
+            if (avatarUrl) {
+                return `<img src="${avatarUrl}" alt="${escapeHtml(username)}" style="width:${size}px;height:${size}px;border-radius:50%;object-fit:cover;">`;
+            }
+            return `<div class="avatar-placeholder" style="width:${size}px;height:${size}px;border-radius:50%;background:#1877f2;color:white;display:flex;align-items:center;justify-content:center;font-size:${Math.floor(size/2.2)}px;font-weight:bold;">${initial}</div>`;
+        }
+
+        function escapeHtml(text) {
+            if (!text) return '';
+            const d = document.createElement('div');
+            d.textContent = text;
+            return d.innerHTML;
+        }
+
+        function formatTime(ts) {
+            if (!ts) return '';
+            const d = new Date(ts);
+            const now = new Date();
+            const diff = Math.floor((now - d) / 1000);
+            if (diff < 60) return `${diff}s ago`;
+            if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
+            if (diff < 86400) return `${Math.floor(diff/3600)}h ago`;
+            if (diff < 604800) return `${Math.floor(diff/86400)}d ago`;
+            return d.toLocaleDateString();
+        }
+
+        const typeIcons = {
+            'new_follower': '??',
+            'new_like': '??',
+            'new_comment': '??',
+            'comment_reply': '??',
+            'new_message': '??',
+        };
+
+        const typeMessages = {
+            'new_follower': 'started following you',
+            'new_like': 'liked your post',
+            'new_comment': 'commented on your post',
+            'comment_reply': 'replied to your comment',
+            'new_message': 'sent you a message',
+        };
+
+        function notifLink(notif) {
+            switch (notif.type) {
+                case 'new_follower': return `profile.html?username=${encodeURIComponent(notif.actor_username || '')}`;
+                case 'new_like':
+                case 'new_comment':
+                case 'comment_reply': return notif.entity_id ? `feed.html#post-${notif.entity_id}` : '#';
+                case 'new_message': return notif.actor_id ? `messaging.html?user_id=${notif.actor_id}` : 'messaging.html';
+                default: return '#';
+            }
+        }
+
+        function renderNotification(notif) {
+            const icon = typeIcons[notif.type] || '??';
+            const msg = typeMessages[notif.type] || notif.type;
+            const link = notifLink(notif);
+            const unreadClass = notif.is_read ? '' : 'notif-unread';
+
+            return `
+            <div class="notif-item ${unreadClass}" data-notif-id="${notif.id}" id="notif-item-${notif.id}">
+                <a href="${link}" class="notif-link" onclick="markOneRead(${notif.id})">
+                    <div class="notif-icon">${icon}</div>
+                    <div class="notif-body">
+                        ${avatarHtml(notif.actor_avatar, notif.actor_username || '?', 40)}
+                        <div class="notif-text">
+                            ${notif.actor_username
+                                ? `<strong>${escapeHtml(notif.actor_username)}</strong> `
+                                : ''}${escapeHtml(msg)}
+                            <div class="notif-time">${formatTime(notif.created_at)}</div>
+                        </div>
+                    </div>
+                </a>
+                ${!notif.is_read ? `<button class="notif-read-btn" onclick="markOneRead(${notif.id})" aria-label="Mark as read" title="Mark as read">?</button>` : ''}
+            </div>`;
+        }
+
+        async function loadNotifications(reset = false) {
+            if (reset) {
+                notifOffset = 0;
+                hasMoreNotifs = true;
+                document.getElementById('notifications-container').innerHTML = '';
+            }
+            if (!hasMoreNotifs) return;
+
+            const data = await apiCall(`/notifications?limit=${notifLimit}&offset=${notifOffset}`);
+            document.getElementById('notif-loading').style.display = 'none';
+
+            if (!data || !data.notifications) return;
+
+            const container = document.getElementById('notifications-container');
+            if (data.notifications.length === 0 && notifOffset === 0) {
+                container.innerHTML = '<div class="empty-list">No notifications yet</div>';
+                return;
+            }
+
+            let hasUnread = false;
+            data.notifications.forEach(n => {
+                container.insertAdjacentHTML('beforeend', renderNotification(n));
+                if (!n.is_read) hasUnread = true;
+            });
+
+            notifOffset += data.notifications.length;
+            hasMoreNotifs = data.notifications.length === notifLimit;
+            document.getElementById('load-more-notif-btn').style.display = hasMoreNotifs ? 'block' : 'none';
+
+            if (hasUnread) {
+                document.getElementById('mark-all-btn').style.display = 'inline-block';
+            }
+        }
+
+        function loadMoreNotifications() { loadNotifications(); }
+
+        async function markOneRead(notifId) {
+            const el = document.getElementById(`notif-item-${notifId}`);
+            if (el && el.classList.contains('notif-unread')) {
+                el.classList.remove('notif-unread');
+                const btn = el.querySelector('.notif-read-btn');
+                if (btn) btn.remove();
+                await apiCall(`/notifications/${notifId}/mark-read`, { method: 'POST' });
+                updateNotifBadge();
+            }
+        }
+
+        async function markAllRead() {
+            // Get all unread notification ids
+            const unreadEls = document.querySelectorAll('.notif-item.notif-unread');
+            const ids = Array.from(unreadEls).map(el => parseInt(el.dataset.notifId));
+            if (!ids.length) return;
+
+            unreadEls.forEach(el => {
+                el.classList.remove('notif-unread');
+                const btn = el.querySelector('.notif-read-btn');
+                if (btn) btn.remove();
+            });
+
+            await apiCall('/notifications/mark-read', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ notification_ids: ids })
+            });
+
+            document.getElementById('mark-all-btn').style.display = 'none';
+            document.getElementById('notif-badge').textContent = '';
+        }
+
+        // WebSocket for real-time notifications
+        function connectWS() {
+            ws = new WebSocket(`${WS_URL}?token=${token}`);
+            ws.onopen = () => { console.log('[WS] Notifications: connected'); };
+            ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    console.log('[WS] Received:', data);
+                    if (data.type === 'notification') {
+                        const payload = data.data || data;
+                        // Prepend new notification
+                        const container = document.getElementById('notifications-container');
+                        const fakeNotif = {
+                            id: payload.id || 0,
+                            type: payload.type,
+                            actor_username: payload.actor_username || '',
+                            actor_avatar: payload.actor_avatar || null,
+                            actor_id: payload.actor_id,
+                            entity_id: payload.entity_id,
+                            is_read: false,
+                            created_at: new Date().toISOString()
+                        };
+                        container.insertAdjacentHTML('afterbegin', renderNotification(fakeNotif));
+                        document.getElementById('mark-all-btn').style.display = 'inline-block';
+                        updateNotifBadge();
+                    }
+                } catch(e) { console.error('[WS] parse error:', e); }
+            };
+            ws.onerror = (e) => { console.error('[WS] error:', e); };
+            ws.onclose = () => { setTimeout(connectWS, 5000); };
+        }
+
+        async function updateNotifBadge() {
+            const data = await apiCall('/notifications/unread-count');
+            const badge = document.getElementById('notif-badge');
+            if (data && data.unread_count > 0) {
+                badge.textContent = data.unread_count > 99 ? '99+' : data.unread_count;
+            } else {
+                badge.textContent = '';
+            }
+        }
+
+        async function updateMsgBadge() {
+            const data = await apiCall('/messages/unread-count');
+            const badge = document.getElementById('msg-badge');
+            if (data && data.unread_count > 0) {
+                badge.textContent = data.unread_count > 99 ? '99+' : data.unread_count;
+            } else {
+                badge.textContent = '';
+            }
+        }
+
+        // Init
+        loadNotifications(true);
+        updateNotifBadge();
+        updateMsgBadge();
+        try { connectWS(); } catch(e) {}
+        // Fallback polling in case WS is unavailable
+        setInterval(() => {
+            updateNotifBadge();
+            updateMsgBadge();
+        }, 30000);
+    </script>
+</body>
+</html>

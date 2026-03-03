@@ -16,26 +16,32 @@ class AuthMiddleware
         $this->userModel = new User();
     }
 
-    public function authenticate(): ?array
+    public function authenticate(bool $silent = false): ?array
     {
         $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? null;
         
         if (!$authHeader) {
-            $this->respondUnauthorized('Missing authorization header');
+            if (!$silent) {
+                $this->respondUnauthorized('Missing authorization header');
+            }
             return null;
         }
 
         $token = $this->authService->extractTokenFromHeader($authHeader);
         
         if (!$token) {
-            $this->respondUnauthorized('Invalid authorization header');
+            if (!$silent) {
+                $this->respondUnauthorized('Invalid authorization header');
+            }
             return null;
         }
 
         $payload = $this->authService->verifyToken($token);
         
         if (!$payload) {
-            $this->respondUnauthorized('Invalid or expired token');
+            if (!$silent) {
+                $this->respondUnauthorized('Invalid or expired token');
+            }
             return null;
         }
 

@@ -19,6 +19,17 @@ class NotificationController
     public function handle(string $method, array $parts): void
     {
         $action = $parts[0] ?? null;
+        $subAction = $parts[1] ?? null;
+
+        // Support POST /notifications/{id}/mark-read
+        if ($action !== null && is_numeric($action) && $subAction === 'mark-read') {
+            if ($method === 'POST') {
+                $this->markOneAsRead((int)$action);
+            } else {
+                $this->methodNotAllowed();
+            }
+            return;
+        }
 
         switch ($action) {
             case null:
@@ -39,6 +50,7 @@ class NotificationController
                 break;
 
             case 'count':
+            case 'unread-count':
                 if ($method === 'GET') {
                     $this->getUnreadCount();
                 } else {
@@ -122,14 +134,29 @@ class NotificationController
 
         $data = json_decode(file_get_contents('php://input'), true);
 
-        if (empty($data['notification_id'])) {
+        if (!empty($data['notification_ids']) && is_array($data['notification_ids'])) {
+            foreach ($data['notification_ids'] as $nid) {
+                $this->notificationModel->markAsRead((int)$nid, $currentUser['id']);
+            }
+        } elseif (!empty($data['notification_id'])) {
+            $this->notificationModel->markAsRead((int)$data['notification_id'], $currentUser['id']);
+        } else {
             http_response_code(400);
-            echo json_encode(['error' => 'Notification ID is required']);
+            echo json_encode(['error' => 'notification_id or notification_ids required']);
             return;
         }
 
-        $this->notificationModel->markAsRead($data['notification_id'], $currentUser['id']);
+        echo json_encode(['message' => 'Notification(s) marked as read']);
+    }
 
+    private function markOneAsRead(int $notificationId): void
+    {
+        $currentUser = $this->authMiddleware->authenticate();
+        if (!$currentUser) {
+            return;
+        }
+
+        $this->notificationModel->markAsRead($notificationId, $currentUser['id']);
         echo json_encode(['message' => 'Notification marked as read']);
     }
 

@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Models\Post;
 use App\Services\AuthService;
 use App\Services\FileUploadService;
+use App\Services\NotificationService;
 use App\Middleware\AuthMiddleware;
 
 class UserController
@@ -14,6 +15,7 @@ class UserController
     private Post $postModel;
     private AuthMiddleware $authMiddleware;
     private FileUploadService $uploadService;
+    private NotificationService $notificationService;
 
     public function __construct()
     {
@@ -21,12 +23,23 @@ class UserController
         $this->postModel = new Post();
         $this->authMiddleware = new AuthMiddleware();
         $this->uploadService = new FileUploadService();
+        $this->notificationService = new NotificationService();
     }
 
     public function handle(string $method, array $parts): void
     {
         $userId = $parts[0] ?? null;
         $action = $parts[1] ?? null;
+
+        // Search endpoint: GET /users/search?q=...
+        if ($userId === 'search') {
+            if ($method === 'GET') {
+                $this->searchUsers();
+            } else {
+                $this->methodNotAllowed();
+            }
+            return;
+        }
 
         if (!$userId) {
             http_response_code(400);
@@ -40,6 +53,16 @@ class UserController
                 return;
             }
             $userId = $currentUser['id'];
+        }
+
+        // Username lookup: GET /users/{username} (non-numeric, no action)
+        if (!is_numeric($userId) && $action === null) {
+            if ($method === 'GET') {
+                $this->getProfileByUsername($userId);
+            } else {
+                $this->methodNotAllowed();
+            }
+            return;
         }
 
         switch ($action) {
@@ -105,18 +128,91 @@ class UserController
         }
 
         $stats = $this->userModel->getStats($userId);
+        $currentUser = $this->authMiddleware->authenticate(silent: true);
+        $requesterId = $currentUser ? (int)$currentUser['id'] : null;
+
+        $isFollowing = $requesterId ? $this->userModel->isFollowing($requesterId, $userId) : false;
+        $isFollowedBack = $requesterId ? $this->userModel->isFollowing($userId, $requesterId) : false;
 
         echo json_encode([
             'id' => $user['id'],
             'username' => $user['username'],
+            'display_name' => $user['display_name'] ?? $user['username'],
             'bio' => $user['bio'],
             'avatar_url' => $user['avatar_url'],
             'cover_photo_url' => $user['cover_photo_url'],
             'location' => $user['location'],
             'website' => $user['website'],
             'created_at' => $user['created_at'],
+            'is_following' => $isFollowing,
+            'is_followed_back' => $isFollowedBack,
+            'counts' => [
+                'posts' => (int)($stats['posts_count'] ?? 0),
+                'followers' => (int)($stats['followers_count'] ?? 0),
+                'following' => (int)($stats['following_count'] ?? 0),
+            ],
             'stats' => $stats,
         ]);
+    }
+
+    private function getProfileByUsername(string $username): void
+    {
+        $user = $this->userModel->findByUsername($username);
+
+        if (!$user) {
+            http_response_code(404);
+            echo json_encode(['error' => 'User not found']);
+            return;
+        }
+
+        $userId = (int)$user['id'];
+        $stats = $this->userModel->getStats($userId);
+        $currentUser = $this->authMiddleware->authenticate(silent: true);
+        $requesterId = $currentUser ? (int)$currentUser['id'] : null;
+
+        $isFollowing = $requesterId ? $this->userModel->isFollowing($requesterId, $userId) : false;
+        $isFollowedBack = $requesterId ? $this->userModel->isFollowing($userId, $requesterId) : false;
+
+        echo json_encode([
+            'id' => $user['id'],
+            'username' => $user['username'],
+            'display_name' => $user['display_name'] ?? $user['username'],
+            'bio' => $user['bio'],
+            'avatar_url' => $user['avatar_url'],
+            'cover_photo_url' => $user['cover_photo_url'],
+            'location' => $user['location'],
+            'website' => $user['website'],
+            'created_at' => $user['created_at'],
+            'is_following' => $isFollowing,
+            'is_followed_back' => $isFollowedBack,
+            'counts' => [
+                'posts' => (int)($stats['posts_count'] ?? 0),
+                'followers' => (int)($stats['followers_count'] ?? 0),
+                'following' => (int)($stats['following_count'] ?? 0),
+            ],
+            'stats' => $stats,
+        ]);
+    }
+
+    private function searchUsers(): void
+    {
+        $currentUser = $this->authMiddleware->authenticate();
+        if (!$currentUser) {
+            return;
+        }
+
+        $q = trim($_GET['q'] ?? '');
+        $limit = min((int)($_GET['limit'] ?? 20), 50);
+        $offset = (int)($_GET['offset'] ?? 0);
+
+        if (strlen($q) < 1) {
+            echo json_encode(['users' => []]);
+            return;
+        }
+
+        $users = $this->userModel->search($q, $limit, $offset, (int)$currentUser['id']);
+
+        echo json_encode(['users' => $users]);
     }
 
     private function updateProfile(int $userId): void
@@ -143,8 +239,8 @@ class UserController
         $limit = (int)($_GET['limit'] ?? 20);
         $offset = (int)($_GET['offset'] ?? 0);
 
-        $currentUser = $this->authMiddleware->authenticate();
-        $requesterId = $currentUser['id'] ?? null;
+        $currentUser = $this->authMiddleware->authenticate(silent: true);
+        $requesterId = $currentUser ? (int)$currentUser['id'] : null;
 
         $posts = $this->postModel->getUserPosts($userId, $requesterId, $limit, $offset);
 
@@ -156,7 +252,10 @@ class UserController
         $limit = (int)($_GET['limit'] ?? 50);
         $offset = (int)($_GET['offset'] ?? 0);
 
-        $followers = $this->userModel->getFollowers($userId, $limit, $offset);
+        $currentUser = $this->authMiddleware->authenticate(silent: true);
+        $requesterId = $currentUser ? (int)$currentUser['id'] : null;
+
+        $followers = $this->userModel->getFollowers($userId, $limit, $offset, $requesterId);
 
         echo json_encode(['followers' => $followers]);
     }
@@ -166,7 +265,10 @@ class UserController
         $limit = (int)($_GET['limit'] ?? 50);
         $offset = (int)($_GET['offset'] ?? 0);
 
-        $following = $this->userModel->getFollowing($userId, $limit, $offset);
+        $currentUser = $this->authMiddleware->authenticate(silent: true);
+        $requesterId = $currentUser ? (int)$currentUser['id'] : null;
+
+        $following = $this->userModel->getFollowing($userId, $limit, $offset, $requesterId);
 
         echo json_encode(['following' => $following]);
     }
@@ -184,8 +286,21 @@ class UserController
             return;
         }
 
-        if ($this->userModel->follow($currentUser['id'], $targetUserId)) {
-            echo json_encode(['message' => 'Successfully followed user']);
+        if ($this->userModel->follow((int)$currentUser['id'], $targetUserId)) {
+            // Fire notification (non-fatal)
+            try {
+                $this->notificationService->notifyNewFollower($targetUserId, (int)$currentUser['id']);
+            } catch (\Exception $e) {
+                error_log('Follow notification error: ' . $e->getMessage());
+            }
+
+            $stats = $this->userModel->getStats($targetUserId);
+            echo json_encode([
+                'message' => 'Successfully followed user',
+                'followers_count' => (int)($stats['followers_count'] ?? 0),
+                'following_count' => (int)($stats['following_count'] ?? 0),
+                'is_following' => true,
+            ]);
         } else {
             http_response_code(400);
             echo json_encode(['error' => 'Already following or user not found']);
@@ -199,8 +314,14 @@ class UserController
             return;
         }
 
-        if ($this->userModel->unfollow($currentUser['id'], $targetUserId)) {
-            echo json_encode(['message' => 'Successfully unfollowed user']);
+        if ($this->userModel->unfollow((int)$currentUser['id'], $targetUserId)) {
+            $stats = $this->userModel->getStats($targetUserId);
+            echo json_encode([
+                'message' => 'Successfully unfollowed user',
+                'followers_count' => (int)($stats['followers_count'] ?? 0),
+                'following_count' => (int)($stats['following_count'] ?? 0),
+                'is_following' => false,
+            ]);
         } else {
             http_response_code(400);
             echo json_encode(['error' => 'Not following this user']);

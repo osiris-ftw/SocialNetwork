@@ -107,10 +107,23 @@ class User extends BaseModel
         ]);
     }
 
-    public function getFollowers(int $userId, int $limit = 50, int $offset = 0): array
+    public function getFollowers(int $userId, int $limit = 50, int $offset = 0, ?int $currentUserId = null): array
     {
+        if ($currentUserId) {
+            return $this->query(
+                "SELECT u.id, u.username, u.bio, u.avatar_url,
+                        EXISTS(SELECT 1 FROM follows WHERE follower_id = ? AND following_id = u.id) as is_following
+                 FROM {$this->table} u
+                 INNER JOIN follows f ON f.follower_id = u.id
+                 WHERE f.following_id = ?
+                 ORDER BY f.created_at DESC
+                 LIMIT {$limit} OFFSET {$offset}",
+                [$currentUserId, $userId]
+            );
+        }
         return $this->query(
-            "SELECT u.* FROM {$this->table} u
+            "SELECT u.id, u.username, u.bio, u.avatar_url, 0 as is_following
+             FROM {$this->table} u
              INNER JOIN follows f ON f.follower_id = u.id
              WHERE f.following_id = ?
              ORDER BY f.created_at DESC
@@ -119,10 +132,23 @@ class User extends BaseModel
         );
     }
 
-    public function getFollowing(int $userId, int $limit = 50, int $offset = 0): array
+    public function getFollowing(int $userId, int $limit = 50, int $offset = 0, ?int $currentUserId = null): array
     {
+        if ($currentUserId) {
+            return $this->query(
+                "SELECT u.id, u.username, u.bio, u.avatar_url,
+                        EXISTS(SELECT 1 FROM follows WHERE follower_id = ? AND following_id = u.id) as is_following
+                 FROM {$this->table} u
+                 INNER JOIN follows f ON f.following_id = u.id
+                 WHERE f.follower_id = ?
+                 ORDER BY f.created_at DESC
+                 LIMIT {$limit} OFFSET {$offset}",
+                [$currentUserId, $userId]
+            );
+        }
         return $this->query(
-            "SELECT u.* FROM {$this->table} u
+            "SELECT u.id, u.username, u.bio, u.avatar_url, 0 as is_following
+             FROM {$this->table} u
              INNER JOIN follows f ON f.following_id = u.id
              WHERE f.follower_id = ?
              ORDER BY f.created_at DESC
@@ -160,6 +186,35 @@ class User extends BaseModel
             "DELETE FROM follows WHERE follower_id = ? AND following_id = ?",
             [$followerId, $followingId]
         );
+    }
+
+    public function search(string $query, int $limit = 20, int $offset = 0, ?int $currentUserId = null): array
+    {
+        $like = '%' . $query . '%';
+        $params = [$like, $like];
+
+        if ($currentUserId) {
+            $sql = "SELECT u.id, u.username, u.bio, u.avatar_url,
+                       EXISTS(SELECT 1 FROM follows WHERE follower_id = ? AND following_id = u.id) as is_following,
+                       EXISTS(SELECT 1 FROM follows WHERE follower_id = u.id AND following_id = ?) as is_followed_back
+                    FROM {$this->table} u
+                    WHERE (u.username LIKE ? OR u.bio LIKE ?)
+                      AND u.id != ?
+                      AND u.is_banned = 0
+                    ORDER BY u.username ASC
+                    LIMIT {$limit} OFFSET {$offset}";
+            $params = [$currentUserId, $currentUserId, $like, $like, $currentUserId];
+        } else {
+            $sql = "SELECT u.id, u.username, u.bio, u.avatar_url,
+                       0 as is_following, 0 as is_followed_back
+                    FROM {$this->table} u
+                    WHERE (u.username LIKE ? OR u.bio LIKE ?)
+                      AND u.is_banned = 0
+                    ORDER BY u.username ASC
+                    LIMIT {$limit} OFFSET {$offset}";
+        }
+
+        return $this->query($sql, $params);
     }
 
     public function getStats(int $userId): array

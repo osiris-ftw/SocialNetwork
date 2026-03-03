@@ -17,8 +17,10 @@ class Message extends BaseModel
         ]);
     }
 
-    public function getConversation(int $userId, int $otherUserId, int $limit = 50, int $offset = 0): array
+    public function getConversation(int $userId, int $otherUserId, int $limit = 50, int $offset = 0, int $afterId = 0): array
     {
+        $afterClause = $afterId > 0 ? 'AND m.id > ' . (int)$afterId : '';
+        $order = $afterId > 0 ? 'ASC' : 'DESC';
         return $this->query(
             "SELECT m.*, 
                     sender.username as sender_username, 
@@ -30,7 +32,8 @@ class Message extends BaseModel
              INNER JOIN users recipient ON m.recipient_id = recipient.id
              WHERE ((m.sender_id = ? AND m.recipient_id = ? AND m.is_deleted_by_sender = 0)
                  OR (m.sender_id = ? AND m.recipient_id = ? AND m.is_deleted_by_recipient = 0))
-             ORDER BY m.created_at DESC
+             {$afterClause}
+             ORDER BY m.created_at {$order}
              LIMIT {$limit} OFFSET {$offset}",
             [$userId, $otherUserId, $otherUserId, $userId]
         );

@@ -3,18 +3,20 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Messages - Social Network</title>
+    <title>Messages - Social Network</title>`n    <link rel="icon" href="data:,">
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <nav class="navbar">
         <div class="nav-content">
-            <h1>Social Network</h1>
+            <a href="feed.html" class="nav-brand">Social Network</a>
             <div class="nav-links">
                 <a href="feed.html">Feed</a>
-                <a href="messaging.html" class="active">Messages</a>
-                <a href="#">Notifications</a>
-                <a href="#" onclick="logout()">Logout</a>
+                <a href="search.html">Search</a>
+                <a href="messaging.html" class="active">Messages <span id="msg-badge" class="badge"></span></a>
+                <a href="notifications.html">Notifications <span id="notif-badge" class="badge"></span></a>
+                <a href="javascript:void(0)" id="my-profile-link">Profile</a>
+                <a href="javascript:void(0)" onclick="logout()">Logout</a>
             </div>
         </div>
     </nav>
@@ -36,7 +38,11 @@
                 <div id="chat-container" style="display: none;">
                     <div class="chat-header" id="chat-header"></div>
                     <div class="chat-messages" id="chat-messages"></div>
-                    <div class="chat-input">
+                    <div id="chat-locked" style="display:none;padding:14px 16px;background:#fff8e1;border-top:1px solid #ffe082;color:#795548;font-size:13px;text-align:center;">
+                        ?? You need to follow each other to send messages.
+                    </div>
+                    <div class="chat-input" id="chat-input-area">
+                        <div id="send-error" style="display:none;color:#e74c3c;font-size:12px;padding:4px 10px;"></div>
                         <form id="send-message-form">
                             <input type="text" id="message-input" placeholder="Type a message..." required>
                             <button type="submit" class="btn btn-primary">Send</button>
@@ -54,9 +60,13 @@
         let currentUser = JSON.parse(localStorage.getItem('user') || '{}');
         let ws = null;
         let currentConversation = null;
+        let lastMessageId = 0;
 
-        if (!token) {
-            window.location.href = 'login.html';
+        if (!token) { window.location.href = 'login.html'; }
+
+        if (currentUser.username) {
+            const pl = document.getElementById('my-profile-link');
+            if (pl) pl.href = `profile.html?username=${currentUser.username}`;
         }
 
         async function apiCall(endpoint, options = {}) {
@@ -107,6 +117,8 @@
 
                 // Refresh conversations list to update unread counts
                 loadConversations();
+                updateMsgBadge();
+                if (data.type === 'notification') updateNotifBadge();
             };
 
             ws.onerror = (error) => {
@@ -120,22 +132,33 @@
             };
         }
 
+        function avatarHtml(url, username, size = 40) {
+            const initial = (username || '?')[0].toUpperCase();
+            if (url) return `<img src="${url}" alt="${escapeHtml(username)}" style="width:${size}px;height:${size}px;border-radius:50%;object-fit:cover;flex-shrink:0;">`;
+            return `<div style="width:${size}px;height:${size}px;border-radius:50%;background:#1877f2;color:white;display:flex;align-items:center;justify-content:center;font-size:${Math.floor(size/2.2)}px;font-weight:bold;flex-shrink:0;">${initial}</div>`;
+        }
+
         async function loadConversations() {
             const data = await apiCall('/messages/conversations');
             if (data && data.conversations) {
                 const list = document.getElementById('conversations-list');
                 list.innerHTML = '';
 
+                if (data.conversations.length === 0) {
+                    list.innerHTML = '<div style="padding:20px;color:#888;text-align:center;font-size:14px;">No conversations yet</div>';
+                    return;
+                }
+
                 data.conversations.forEach(conv => {
-                    const unreadBadge = conv.unread_count > 0 ? 
-                        `<span class="badge">${conv.unread_count}</span>` : '';
-                    
+                    const unreadBadge = conv.unread_count > 0 ?
+                        `<span class="badge" style="margin-left:auto;">${conv.unread_count}</span>` : '';
+                    const isActive = currentConversation && currentConversation.id == conv.other_user_id ? 'active' : '';
                     list.innerHTML += `
-                        <div class="conversation-item" onclick="openConversation(${conv.other_user_id}, '${conv.other_username}')">
-                            <img src="${conv.other_avatar || 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2240%22 height=%2240%22%3E%3Crect width=%2240%22 height=%2240%22 fill=%22%23ddd%22/%3E%3Ctext x=%2250%25%22 y=%2250%25%22 dominant-baseline=%22middle%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%2218%22%3E?%3C/text%3E%3C/svg%3E'}" alt="Avatar" class="avatar">
+                        <div class="conversation-item ${isActive}" onclick="openConversation(${conv.other_user_id}, '${escapeHtml(conv.other_username)}', '${escapeHtml(conv.other_avatar || '')}')">
+                            ${avatarHtml(conv.other_avatar, conv.other_username, 42)}
                             <div class="conversation-info">
-                                <strong>${conv.other_username}</strong>
-                                <div class="last-message">${escapeHtml(conv.content)}</div>
+                                <strong>${escapeHtml(conv.other_username)}</strong>
+                                <div class="last-message">${escapeHtml(conv.content || '')}</div>
                             </div>
                             ${unreadBadge}
                         </div>
@@ -144,17 +167,26 @@
             }
         }
 
-        async function openConversation(userId, username) {
-            currentConversation = { id: userId, username: username };
+        async function openConversation(userId, username, avatarUrl = '') {
+            currentConversation = { id: userId, username: username, avatar: avatarUrl };
+            lastMessageId = 0;
 
-            // Show chat container
             document.getElementById('chat-empty').style.display = 'none';
             document.getElementById('chat-container').style.display = 'flex';
+            document.getElementById('send-error').style.display = 'none';
 
-            // Update header
             document.getElementById('chat-header').innerHTML = `
-                <h3>${username}</h3>
+                <a href="profile.html?username=${encodeURIComponent(username)}" style="display:flex;align-items:center;gap:10px;text-decoration:none;color:inherit;">
+                    ${avatarHtml(avatarUrl, username, 38)}
+                    <strong>${escapeHtml(username)}</strong>
+                </a>
             `;
+
+            // Check mutual follow before allowing send
+            const profile = await apiCall(`/users/${encodeURIComponent(username)}`);
+            const isMutual = profile && profile.is_following && profile.is_followed_back;
+            document.getElementById('chat-input-area').style.display = isMutual ? 'block' : 'none';
+            document.getElementById('chat-locked').style.display = isMutual ? 'none' : 'block';
 
             // Load messages
             const data = await apiCall(`/messages/conversation?user_id=${userId}`);
@@ -163,32 +195,48 @@
                 messagesContainer.innerHTML = '';
 
                 data.messages.reverse().forEach(msg => {
-                    appendMessage(msg.sender_id, msg.content, msg.sender_id == currentUser.id);
+                    appendMessage(msg.sender_id, msg.content, msg.sender_id == currentUser.id, msg.id);
                 });
+                if (data.messages.length > 0) lastMessageId = data.messages[data.messages.length - 1].id;
 
-                // Scroll to bottom
                 messagesContainer.scrollTop = messagesContainer.scrollHeight;
 
-                // Mark as read
                 await apiCall('/messages/mark-read', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ user_id: userId })
                 });
+                updateMsgBadge();
+                loadConversations();
             }
         }
 
-        function appendMessage(senderId, content, isSent) {
+        function appendMessage(senderId, content, isSent, msgId = 0) {
             const messagesContainer = document.getElementById('chat-messages');
             const messageDiv = document.createElement('div');
             messageDiv.className = `message ${isSent ? 'message-sent' : 'message-received'}`;
-            messageDiv.innerHTML = `
-                <div class="message-bubble">
-                    ${escapeHtml(content)}
-                </div>
-            `;
+            if (msgId) { messageDiv.dataset.msgId = msgId; lastMessageId = Math.max(lastMessageId, msgId); }
+            messageDiv.innerHTML = `<div class="message-bubble">${escapeHtml(content)}</div>`;
             messagesContainer.appendChild(messageDiv);
             messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+
+        async function pollCurrentConversation() {
+            if (!currentConversation || !lastMessageId) return;
+            const data = await apiCall(`/messages/conversation?user_id=${currentConversation.id}&after_id=${lastMessageId}`);
+            if (data && data.messages && data.messages.length > 0) {
+                data.messages.forEach(msg => {
+                    appendMessage(msg.sender_id, msg.content, msg.sender_id == currentUser.id, msg.id);
+                });
+                // Mark as read
+                await apiCall('/messages/mark-read', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ user_id: currentConversation.id })
+                });
+                updateMsgBadge();
+                loadConversations();
+            }
         }
 
         function escapeHtml(text) {
@@ -220,10 +268,11 @@
                 })
             });
 
+            const errEl = document.getElementById('send-error');
+
             if (response.ok) {
                 const data = await response.json();
-                
-                // Also send via WebSocket for real-time delivery
+                errEl.style.display = 'none';
                 if (ws && ws.readyState === WebSocket.OPEN) {
                     ws.send(JSON.stringify({
                         type: 'message',
@@ -232,18 +281,44 @@
                         message_id: data.message_id
                     }));
                 }
-
-                appendMessage(currentUser.id, content, true);
+                appendMessage(currentUser.id, content, true, data.message_id || 0);
                 input.value = '';
+            } else if (response.status === 403) {
+                const payload = await response.json();
+                errEl.textContent = payload.error || 'Mutual follow required to send messages.';
+                errEl.style.display = 'block';
+                // Hide input, show locked notice
+                document.getElementById('chat-input-area').style.display = 'none';
+                document.getElementById('chat-locked').style.display = 'block';
+            } else {
+                const payload = await response.json().catch(() => ({}));
+                errEl.textContent = payload.error || 'Failed to send message.';
+                errEl.style.display = 'block';
             }
         });
+
+        async function updateNotifBadge() {
+            const data = await apiCall('/notifications/unread-count');
+            const b = document.getElementById('notif-badge');
+            if (b) b.textContent = (data && data.unread_count > 0) ? (data.unread_count > 99 ? '99+' : data.unread_count) : '';
+        }
+
+        async function updateMsgBadge() {
+            const data = await apiCall('/messages/unread-count');
+            const b = document.getElementById('msg-badge');
+            if (b) b.textContent = (data && data.unread_count > 0) ? (data.unread_count > 99 ? '99+' : data.unread_count) : '';
+        }
 
         // Initialize
         connectWebSocket();
         loadConversations();
+        updateNotifBadge();
+        updateMsgBadge();
 
-        // Refresh conversations every 10 seconds
+        // Refresh conversations every 10 seconds, poll active chat every 5s
         setInterval(loadConversations, 10000);
+        setInterval(pollCurrentConversation, 5000);
+        setInterval(updateNotifBadge, 60000);
     </script>
 </body>
 </html>

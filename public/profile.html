@@ -1,0 +1,734 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Profile - Social Network</title>
+    <link rel="icon" href="data:,">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-content">
+            <a href="feed.html" class="nav-brand">Social Network</a>
+            <div class="nav-links">
+                <a href="feed.html">Feed</a>
+                <a href="search.html">Search</a>
+                <a href="messaging.html">Messages <span id="msg-badge" class="badge"></span></a>
+                <a href="notifications.html">Notifications <span id="notif-badge" class="badge"></span></a>
+                <a href="javascript:void(0)" id="my-profile-link">Profile</a>
+                <a href="javascript:void(0)" onclick="logout()">Logout</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container" id="profile-container" style="display:none;">
+        <!-- Cover Photo -->
+        <div class="profile-cover" id="cover-photo-area">
+            <div class="profile-cover-overlay"></div>
+        </div>
+
+        <!-- Profile Header -->
+        <div class="profile-header-card">
+            <div class="profile-header-inner">
+                <div class="profile-avatar-wrap">
+                    <img id="profile-avatar" src="" alt="Avatar" class="profile-avatar-lg">
+                </div>
+                <div class="profile-info">
+                    <div class="profile-name-row">
+                        <div>
+                            <h1 id="profile-display-name" class="profile-display-name"></h1>
+                            <div id="profile-username-tag" class="profile-username-tag"></div>
+                        </div>
+                        <div class="profile-action-buttons" id="profile-actions">
+                            <!-- Populated by JS -->
+                        </div>
+                    </div>
+                    <div id="profile-bio" class="profile-bio"></div>
+                    <div id="profile-meta" class="profile-meta"></div>
+                    <div class="profile-stats">
+                        <button class="stat-btn" onclick="openFollowersModal()">
+                            <span class="stat-value" id="stat-posts">0</span>
+                            <span class="stat-label">Posts</span>
+                        </button>
+                        <button class="stat-btn" onclick="openFollowersModal()">
+                            <span class="stat-value" id="stat-followers">0</span>
+                            <span class="stat-label">Followers</span>
+                        </button>
+                        <button class="stat-btn" onclick="openFollowingModal()">
+                            <span class="stat-value" id="stat-following">0</span>
+                            <span class="stat-label">Following</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Posts Section -->
+        <div class="profile-posts-section">
+            <h3 class="section-title">Posts</h3>
+            <div id="profile-posts-container"></div>
+            <div id="profile-loading" class="loading">Loading posts...</div>
+            <button id="load-more-btn" class="btn btn-secondary" style="display:none; margin: 10px auto; display: none;" onclick="loadMorePosts()">Load More</button>
+        </div>
+    </div>
+
+    <div class="container" id="not-found-container" style="display:none;">
+        <div class="card-center">
+            <h2>User not found</h2>
+            <p>The user you're looking for doesn't exist or their account is private.</p>
+            <a href="feed.html" class="btn btn-primary" style="margin-top:20px; width:auto; display:inline-block;">Back to Feed</a>
+        </div>
+    </div>
+
+    <!-- Edit Profile Modal -->
+    <div id="edit-profile-modal" class="modal-overlay" style="display:none;" onclick="closeModal('edit-profile-modal')">
+        <div class="modal-content ep-modal" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <h3>Edit Profile</h3>
+                <button class="modal-close" onclick="closeModal('edit-profile-modal')" aria-label="Close">&times;</button>
+            </div>
+            <div class="ep-modal-body">
+                <div id="edit-profile-error" class="ep-error-msg" style="display:none;"></div>
+
+                <!-- Avatar picker -->
+                <div class="ep-avatar-section">
+                    <div class="ep-avatar-picker" onclick="document.getElementById('ep-avatar-input').click()" title="Change profile photo">
+                        <div id="ep-avatar-preview" class="ep-avatar-preview"></div>
+                        <div class="ep-avatar-overlay">
+                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                            <span>Change Photo</span>
+                        </div>
+                    </div>
+                    <p class="ep-avatar-hint">JPG or PNG · Max 5 MB</p>
+                </div>
+                <input type="file" id="ep-avatar-input" accept="image/jpeg,image/png,image/webp" style="display:none;" onchange="handleAvatarPreview(this)">
+
+                <!-- Fields -->
+                <div class="ep-form-group">
+                    <label class="ep-label" for="ep-display-name">Display Name</label>
+                    <input id="ep-display-name" type="text" class="ep-input" maxlength="60" placeholder="Your name" oninput="document.getElementById('ep-dn-count').textContent=this.value.length+' / 60'">
+                    <span class="ep-char-count" id="ep-dn-count">0 / 60</span>
+                </div>
+                <div class="ep-form-group">
+                    <label class="ep-label" for="ep-bio">Bio</label>
+                    <textarea id="ep-bio" class="ep-input ep-textarea" maxlength="200" rows="3" placeholder="Tell people about yourself" oninput="document.getElementById('ep-bio-count').textContent=this.value.length+' / 200'"></textarea>
+                    <span class="ep-char-count" id="ep-bio-count">0 / 200</span>
+                </div>
+                <div class="ep-form-group">
+                    <label class="ep-label" for="ep-location">Location</label>
+                    <div class="ep-input-icon-wrap">
+                        <svg class="ep-input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                        <input id="ep-location" type="text" class="ep-input ep-input-has-icon" maxlength="100" placeholder="City, Country">
+                    </div>
+                </div>
+                <div class="ep-form-group">
+                    <label class="ep-label" for="ep-website">Website</label>
+                    <div class="ep-input-icon-wrap">
+                        <svg class="ep-input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+                        <input id="ep-website" type="url" class="ep-input ep-input-has-icon" maxlength="200" placeholder="https://example.com">
+                    </div>
+                </div>
+            </div>
+            <div class="ep-modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('edit-profile-modal')">Cancel</button>
+                <button class="btn btn-primary" id="ep-save-btn" onclick="saveProfile()">Save Changes</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Followers Modal -->
+    <div id="followers-modal" class="modal-overlay" style="display:none;" onclick="closeModal('followers-modal')">
+        <div class="modal-content" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <h3>Followers</h3>
+                <button class="modal-close" onclick="closeModal('followers-modal')" aria-label="Close">&times;</button>
+            </div>
+            <div id="followers-list" class="user-list"></div>
+        </div>
+    </div>
+
+    <!-- Following Modal -->
+    <div id="following-modal" class="modal-overlay" style="display:none;" onclick="closeModal('following-modal')">
+        <div class="modal-content" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <h3>Following</h3>
+                <button class="modal-close" onclick="closeModal('following-modal')" aria-label="Close">&times;</button>
+            </div>
+            <div id="following-list" class="user-list"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:8000';
+        const WS_URL = 'ws://localhost:8081';
+        let token = localStorage.getItem('token');
+        let currentUser = JSON.parse(localStorage.getItem('user') || '{}');
+        let profileUser = null;
+        let postsOffset = 0;
+        let postsLimit = 10;
+        let hasMorePosts = true;
+        let ws = null;
+
+        if (!token) {
+            window.location.href = 'login.html';
+        }
+
+        // Setup nav
+        if (currentUser.username) {
+            document.getElementById('my-profile-link').href = `profile.html?username=${currentUser.username}`;
+        }
+
+        async function apiCall(endpoint, options = {}) {
+            const headers = { 'Authorization': `Bearer ${token}`, ...options.headers };
+            const response = await fetch(`${API_URL}${endpoint}`, { ...options, headers });
+            if (response.status === 401) { logout(); return null; }
+            return response.json();
+        }
+
+        function logout() {
+            if (ws) ws.close();
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            window.location.href = 'login.html';
+        }
+
+        function avatarHtml(avatarUrl, username, size = 40) {
+            const initial = (username || '?')[0].toUpperCase();
+            if (avatarUrl) {
+                return `<img src="${avatarUrl}" alt="${escapeHtml(username)}" style="width:${size}px;height:${size}px;border-radius:50%;object-fit:cover;">`;
+            }
+            return `<div class="avatar-placeholder" style="width:${size}px;height:${size}px;border-radius:50%;background:#1877f2;color:white;display:flex;align-items:center;justify-content:center;font-size:${Math.floor(size/2.2)}px;font-weight:bold;">${initial}</div>`;
+        }
+
+        function escapeHtml(text) {
+            if (!text) return '';
+            const d = document.createElement('div');
+            d.textContent = text;
+            return d.innerHTML;
+        }
+
+        function formatTime(ts) {
+            if (!ts) return '';
+            const d = new Date(ts);
+            const now = new Date();
+            const diff = Math.floor((now - d) / 1000);
+            if (diff < 60) return `${diff}s ago`;
+            if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
+            if (diff < 86400) return `${Math.floor(diff/3600)}h ago`;
+            return d.toLocaleDateString();
+        }
+
+        // Load profile
+        async function loadProfile() {
+            const params = new URLSearchParams(window.location.search);
+            const username = params.get('username');
+            const userId = params.get('id');
+
+            let data = null;
+            if (username) {
+                data = await apiCall(`/users/${encodeURIComponent(username)}`);
+            } else if (userId) {
+                data = await apiCall(`/users/${userId}`);
+            } else {
+                // Load own profile
+                if (currentUser.username) {
+                    data = await apiCall(`/users/${encodeURIComponent(currentUser.username)}`);
+                }
+            }
+
+            if (!data || data.error) {
+                document.getElementById('not-found-container').style.display = 'block';
+                return;
+            }
+
+            profileUser = data;
+            renderProfile(data);
+            document.getElementById('profile-container').style.display = 'block';
+            loadPosts();
+        }
+
+        let pendingAvatarFile = null;
+
+        function handleAvatarPreview(input) {
+            const file = input.files[0];
+            if (!file) return;
+            if (file.size > 5 * 1024 * 1024) {
+                alert('Image must be under 5 MB.');
+                input.value = '';
+                return;
+            }
+            pendingAvatarFile = file;
+            const reader = new FileReader();
+            reader.onload = e => {
+                const preview = document.getElementById('ep-avatar-preview');
+                preview.innerHTML = `<img src="${e.target.result}" alt="Preview" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">`;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function openEditProfileModal() {
+            if (!profileUser) return;
+            pendingAvatarFile = null;
+
+            // Populate avatar preview
+            const preview = document.getElementById('ep-avatar-preview');
+            if (profileUser.avatar_url) {
+                preview.innerHTML = `<img src="${profileUser.avatar_url}" alt="Avatar" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">`;
+            } else {
+                const initial = (profileUser.username || '?')[0].toUpperCase();
+                preview.innerHTML = `<div style="width:100%;height:100%;border-radius:50%;background:#1877f2;color:#fff;display:flex;align-items:center;justify-content:center;font-size:32px;font-weight:700;">${initial}</div>`;
+            }
+
+            const dn = profileUser.display_name || '';
+            const bio = profileUser.bio || '';
+            document.getElementById('ep-display-name').value = dn;
+            document.getElementById('ep-bio').value = bio;
+            document.getElementById('ep-location').value = profileUser.location || '';
+            document.getElementById('ep-website').value = profileUser.website || '';
+            document.getElementById('ep-dn-count').textContent = `${dn.length} / 60`;
+            document.getElementById('ep-bio-count').textContent = `${bio.length} / 200`;
+            document.getElementById('edit-profile-error').style.display = 'none';
+            document.getElementById('ep-avatar-input').value = '';
+            document.getElementById('edit-profile-modal').style.display = 'flex';
+        }
+
+        async function saveProfile() {
+            const saveBtn = document.getElementById('ep-save-btn');
+            const errorEl = document.getElementById('edit-profile-error');
+            errorEl.style.display = 'none';
+            saveBtn.disabled = true;
+            saveBtn.textContent = 'Saving...';
+
+            // 1. Upload avatar if a new file was selected
+            let newAvatarUrl = null;
+            if (pendingAvatarFile) {
+                const fd = new FormData();
+                fd.append('avatar', pendingAvatarFile);
+                try {
+                    const upRes = await fetch(`${API_URL}/upload/avatar`, {
+                        method: 'POST',
+                        headers: { 'Authorization': `Bearer ${token}` },
+                        body: fd
+                    });
+                    const upData = await upRes.json();
+                    if (upData.error) throw new Error(upData.error);
+                    newAvatarUrl = upData.data?.url || null;
+                } catch (e) {
+                    saveBtn.disabled = false;
+                    saveBtn.textContent = 'Save Changes';
+                    errorEl.textContent = `Avatar upload failed: ${e.message}`;
+                    errorEl.style.display = 'block';
+                    return;
+                }
+            }
+
+            // 2. Save profile fields
+            const body = {
+                display_name: document.getElementById('ep-display-name').value.trim(),
+                bio:          document.getElementById('ep-bio').value.trim(),
+                location:     document.getElementById('ep-location').value.trim(),
+                website:      document.getElementById('ep-website').value.trim()
+            };
+
+            const res = await apiCall(`/users/${profileUser.id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+
+            saveBtn.disabled = false;
+            saveBtn.textContent = 'Save Changes';
+
+            if (!res || res.error) {
+                errorEl.textContent = res?.error || 'Failed to save. Please try again.';
+                errorEl.style.display = 'block';
+                return;
+            }
+
+            // 3. Update local state and re-render
+            if (newAvatarUrl) body.avatar_url = newAvatarUrl;
+            profileUser = { ...profileUser, ...body };
+            try {
+                const cached = JSON.parse(localStorage.getItem('user') || '{}');
+                if (cached.id == profileUser.id) {
+                    localStorage.setItem('user', JSON.stringify({ ...cached, ...body }));
+                    currentUser = { ...currentUser, ...body };
+                }
+            } catch(e) {}
+
+            pendingAvatarFile = null;
+            renderProfile(profileUser);
+            closeModal('edit-profile-modal');
+        }
+
+        function renderProfile(user) {
+            document.title = `${user.display_name || user.username} - Social Network`;
+
+            // Avatar — always re-render the wrap so re-calls never hit a missing #profile-avatar
+            const avatarWrap = document.querySelector('.profile-avatar-wrap');
+            if (user.avatar_url) {
+                avatarWrap.innerHTML = `<img id="profile-avatar" src="${user.avatar_url}" alt="Avatar" class="profile-avatar-lg">`;
+            } else {
+                avatarWrap.innerHTML = avatarHtml(null, user.username, 100);
+            }
+
+            // Cover photo
+            if (user.cover_photo_url) {
+                document.getElementById('cover-photo-area').style.backgroundImage = `url(${user.cover_photo_url})`;
+            }
+
+            // Name/username
+            document.getElementById('profile-display-name').textContent = user.display_name || user.username;
+            document.getElementById('profile-username-tag').textContent = `@${user.username}`;
+
+            // Bio
+            if (user.bio) {
+                document.getElementById('profile-bio').textContent = user.bio;
+            }
+
+            // Meta
+            const meta = [];
+            if (user.location) meta.push(`📍 ${escapeHtml(user.location)}`);
+            if (user.website) meta.push(`🔗 <a href="${escapeHtml(user.website)}" target="_blank" rel="noopener">${escapeHtml(user.website)}</a>`);
+            if (user.created_at) meta.push(`📅 Joined ${new Date(user.created_at).toLocaleDateString('en-US', {month:'long', year:'numeric'})}`);
+            document.getElementById('profile-meta').innerHTML = meta.join(' · ');
+
+            // Stats
+            const counts = user.counts || {};
+            document.getElementById('stat-posts').textContent = counts.posts ?? user.stats?.posts_count ?? 0;
+            document.getElementById('stat-followers').textContent = counts.followers ?? user.stats?.followers_count ?? 0;
+            document.getElementById('stat-following').textContent = counts.following ?? user.stats?.following_count ?? 0;
+
+            // Actions
+            renderProfileActions(user);
+        }
+
+        function renderProfileActions(user) {
+            const actionsEl = document.getElementById('profile-actions');
+            const isOwnProfile = user.id == currentUser.id;
+
+            if (isOwnProfile) {
+                actionsEl.innerHTML = `<button class="btn btn-secondary" onclick="openEditProfileModal()">Edit Profile</button>`;
+                return;
+            }
+
+            const isFollowing = user.is_following;
+            const isMutual = user.is_following && user.is_followed_back;
+
+            let html = '';
+
+            // Follow button
+            html += `
+                <button class="btn ${isFollowing ? 'btn-secondary' : 'btn-primary'} follow-btn"
+                    id="follow-btn"
+                    data-user-id="${user.id}"
+                    data-is-following="${isFollowing ? '1' : '0'}"
+                    onclick="toggleFollow(this)"
+                    aria-label="${isFollowing ? 'Unfollow' : 'Follow'} ${escapeHtml(user.username)}">
+                    ${isFollowing ? 'Following' : 'Follow'}
+                </button>`;
+
+            // Message button (only for mutual follow)
+            if (isMutual) {
+                html += `<a href="messaging.html?user_id=${user.id}" class="btn btn-secondary" style="text-decoration:none;" aria-label="Message ${escapeHtml(user.username)}">Message</a>`;
+            }
+
+            actionsEl.innerHTML = html;
+        }
+
+        async function toggleFollow(btn) {
+            const userId = parseInt(btn.dataset.userId);
+            const isFollowing = btn.dataset.isFollowing === '1';
+
+            // Optimistic update
+            btn.disabled = true;
+            btn.dataset.isFollowing = isFollowing ? '0' : '1';
+            btn.textContent = isFollowing ? 'Follow' : 'Following';
+            btn.className = `btn ${isFollowing ? 'btn-primary' : 'btn-secondary'} follow-btn`;
+
+            const followerCount = document.getElementById('stat-followers');
+            const prevCount = parseInt(followerCount.textContent) || 0;
+            followerCount.textContent = isFollowing ? prevCount - 1 : prevCount + 1;
+
+            const method = isFollowing ? 'DELETE' : 'POST';
+            const data = await apiCall(`/users/${userId}/follow`, { method });
+
+            btn.disabled = false;
+
+            if (!data || data.error) {
+                // Rollback
+                btn.dataset.isFollowing = isFollowing ? '1' : '0';
+                btn.textContent = isFollowing ? 'Following' : 'Follow';
+                btn.className = `btn ${isFollowing ? 'btn-secondary' : 'btn-primary'} follow-btn`;
+                followerCount.textContent = prevCount;
+                return;
+            }
+
+            // Update counts from server
+            if (data.followers_count !== undefined) {
+                followerCount.textContent = data.followers_count;
+            }
+
+            // Update profileUser and re-render actions to show/hide message button
+            profileUser.is_following = !isFollowing;
+            renderProfileActions(profileUser);
+        }
+
+        // Posts
+        async function loadPosts() {
+            if (!hasMorePosts) return;
+            document.getElementById('profile-loading').style.display = 'block';
+
+            const data = await apiCall(`/posts?user_id=${profileUser.id}&limit=${postsLimit}&offset=${postsOffset}`);
+            document.getElementById('profile-loading').style.display = 'none';
+
+            if (!data || !data.posts) return;
+
+            const container = document.getElementById('profile-posts-container');
+            data.posts.forEach(post => {
+                container.insertAdjacentHTML('beforeend', createPostHTML(post));
+            });
+
+            postsOffset += data.posts.length;
+            hasMorePosts = data.posts.length === postsLimit;
+
+            const loadMoreBtn = document.getElementById('load-more-btn');
+            loadMoreBtn.style.display = hasMorePosts ? 'block' : 'none';
+        }
+
+        function loadMorePosts() { loadPosts(); }
+
+        function createPostHTML(post) {
+            const liked = post.is_liked ? '❤️' : '🤍';
+            return `
+            <div class="post-card" data-post-id="${post.id}">
+                <div class="post-header">
+                    <a href="profile.html?username=${encodeURIComponent(post.username)}" class="post-author-link">
+                        ${avatarHtml(post.avatar_url, post.username, 40)}
+                        <div>
+                            <strong>${escapeHtml(post.username)}</strong>
+                            <div class="post-time">${formatTime(post.created_at)}</div>
+                        </div>
+                    </a>
+                </div>
+                <div class="post-content">${escapeHtml(post.content)}</div>
+                ${post.media_url ? `<img src="${post.media_url}" alt="Post media" class="post-image" loading="lazy">` : ''}
+                <div class="post-actions-bar">
+                    <button class="btn-icon like-btn" data-post-id="${post.id}" data-liked="${post.is_liked ? '1' : '0'}"
+                        onclick="toggleLike(this)" aria-label="${post.is_liked ? 'Unlike' : 'Like'} post">
+                        ${liked} <span class="like-count">${post.like_count || 0}</span>
+                    </button>
+                    <button class="btn-icon" onclick="toggleComments(${post.id})" aria-label="Comments">
+                        💬 <span id="comment-count-${post.id}">${post.comment_count || 0}</span>
+                    </button>
+                </div>
+                <div class="comments-section" id="comments-${post.id}" style="display:none;">
+                    <div class="comments-list" id="comments-list-${post.id}"></div>
+                    <form class="comment-form" onsubmit="submitComment(event, ${post.id})">
+                        <input type="text" class="comment-input" placeholder="Write a comment…" required aria-label="Add comment">
+                        <button type="submit" class="btn-comment-submit" aria-label="Submit comment">Post</button>
+                    </form>
+                </div>
+            </div>`;
+        }
+
+        async function toggleLike(btn) {
+            const postId = parseInt(btn.dataset.postId);
+            const isLiked = btn.dataset.liked === '1';
+
+            btn.dataset.liked = isLiked ? '0' : '1';
+            const countEl = btn.querySelector('.like-count');
+            const prevCount = parseInt(countEl.textContent) || 0;
+            countEl.textContent = isLiked ? prevCount - 1 : prevCount + 1;
+            btn.innerHTML = `${isLiked ? '🤍' : '❤️'} <span class="like-count">${countEl.textContent}</span>`;
+            btn.dataset.liked = isLiked ? '0' : '1';
+
+            const method = isLiked ? 'DELETE' : 'POST';
+            const data = await apiCall(`/posts/${postId}/like`, { method });
+            if (data && data.like_count !== undefined) {
+                btn.querySelector('.like-count').textContent = data.like_count;
+            }
+        }
+
+        async function toggleComments(postId) {
+            const section = document.getElementById(`comments-${postId}`);
+            const isHidden = section.style.display === 'none';
+            section.style.display = isHidden ? 'block' : 'none';
+
+            if (isHidden) {
+                const listEl = document.getElementById(`comments-list-${postId}`);
+                if (!listEl.dataset.loaded) {
+                    listEl.innerHTML = '<div class="loading">Loading…</div>';
+                    const data = await apiCall(`/posts/${postId}/comments`);
+                    listEl.dataset.loaded = '1';
+                    listEl.innerHTML = '';
+                    if (data && data.comments) {
+                        data.comments.forEach(c => {
+                            listEl.insertAdjacentHTML('beforeend', renderComment(c));
+                        });
+                    }
+                }
+            }
+        }
+
+        function renderComment(c) {
+            return `<div class="comment-item">
+                <div class="comment-author">
+                    ${avatarHtml(c.avatar_url, c.username, 28)}
+                    <a href="profile.html?username=${encodeURIComponent(c.username)}" class="comment-username">${escapeHtml(c.username)}</a>
+                    <span class="comment-time">${formatTime(c.created_at)}</span>
+                </div>
+                <div class="comment-content">${escapeHtml(c.content)}</div>
+                ${c.replies && c.replies.length ? c.replies.map(r => `
+                    <div class="comment-reply">
+                        <div class="comment-author">
+                            ${avatarHtml(r.avatar_url, r.username, 24)}
+                            <a href="profile.html?username=${encodeURIComponent(r.username)}" class="comment-username">${escapeHtml(r.username)}</a>
+                            <span class="comment-time">${formatTime(r.created_at)}</span>
+                        </div>
+                        <div class="comment-content">${escapeHtml(r.content)}</div>
+                    </div>`).join('') : ''}
+            </div>`;
+        }
+
+        async function submitComment(e, postId) {
+            e.preventDefault();
+            const form = e.target;
+            const input = form.querySelector('.comment-input');
+            const content = input.value.trim();
+            if (!content) return;
+
+            input.disabled = true;
+            const data = await apiCall(`/posts/${postId}/comments`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content })
+            });
+            input.disabled = false;
+            if (data && data.comment) {
+                input.value = '';
+                const listEl = document.getElementById(`comments-list-${postId}`);
+                listEl.insertAdjacentHTML('beforeend', renderComment(data.comment));
+                const countEl = document.getElementById(`comment-count-${postId}`);
+                countEl.textContent = parseInt(countEl.textContent || 0) + 1;
+            }
+        }
+
+        // Followers/Following Modals
+        async function openFollowersModal() {
+            if (!profileUser) return;
+            document.getElementById('followers-modal').style.display = 'flex';
+            const listEl = document.getElementById('followers-list');
+            listEl.innerHTML = '<div class="loading">Loading…</div>';
+            const data = await apiCall(`/users/${profileUser.id}/followers`);
+            listEl.innerHTML = '';
+            if (data && data.followers) {
+                data.followers.forEach(u => {
+                    listEl.insertAdjacentHTML('beforeend', renderUserRow(u));
+                });
+                if (!data.followers.length) listEl.innerHTML = '<div class="empty-list">No followers yet</div>';
+            }
+        }
+
+        async function openFollowingModal() {
+            if (!profileUser) return;
+            document.getElementById('following-modal').style.display = 'flex';
+            const listEl = document.getElementById('following-list');
+            listEl.innerHTML = '<div class="loading">Loading…</div>';
+            const data = await apiCall(`/users/${profileUser.id}/following`);
+            listEl.innerHTML = '';
+            if (data && data.following) {
+                data.following.forEach(u => {
+                    listEl.insertAdjacentHTML('beforeend', renderUserRow(u));
+                });
+                if (!data.following.length) listEl.innerHTML = '<div class="empty-list">Not following anyone yet</div>';
+            }
+        }
+
+        function renderUserRow(u) {
+            const isMe = u.id == currentUser.id;
+            return `<div class="user-row" data-user-id="${u.id}">
+                <a href="profile.html?username=${encodeURIComponent(u.username)}" class="user-row-link">
+                    ${avatarHtml(u.avatar_url, u.username, 44)}
+                    <div class="user-row-info">
+                        <strong>${escapeHtml(u.username)}</strong>
+                        ${u.bio ? `<div class="user-row-bio">${escapeHtml(u.bio.substring(0, 60))}</div>` : ''}
+                    </div>
+                </a>
+                ${!isMe ? `<button class="btn ${u.is_following ? 'btn-secondary' : 'btn-primary'} btn-sm follow-row-btn"
+                    data-user-id="${u.id}" data-is-following="${u.is_following ? '1' : '0'}"
+                    onclick="toggleFollowRow(this)">${u.is_following ? 'Following' : 'Follow'}</button>` : ''}
+            </div>`;
+        }
+
+        async function toggleFollowRow(btn) {
+            const userId = parseInt(btn.dataset.userId);
+            const isFollowing = btn.dataset.isFollowing === '1';
+            btn.disabled = true;
+            const method = isFollowing ? 'DELETE' : 'POST';
+            const data = await apiCall(`/users/${userId}/follow`, { method });
+            btn.disabled = false;
+            if (data && !data.error) {
+                btn.dataset.isFollowing = isFollowing ? '0' : '1';
+                btn.textContent = isFollowing ? 'Follow' : 'Following';
+                btn.className = `btn ${isFollowing ? 'btn-primary' : 'btn-secondary'} btn-sm follow-row-btn`;
+            }
+        }
+
+        function closeModal(id) {
+            document.getElementById(id).style.display = 'none';
+        }
+
+        // Close modals with Escape key
+        document.addEventListener('keydown', e => {
+            if (e.key === 'Escape') {
+                closeModal('followers-modal');
+                closeModal('following-modal');
+            }
+        });
+
+        // Real-time: WebSocket for unread count
+        function connectWS() {
+            ws = new WebSocket(`${WS_URL}?token=${token}`);
+            ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.type === 'notification') {
+                        updateNotifBadge();
+                    }
+                } catch(e) {}
+            };
+            ws.onerror = () => {};
+            ws.onclose = () => { setTimeout(connectWS, 5000); };
+        }
+
+        async function updateNotifBadge() {
+            const data = await apiCall('/notifications/unread-count');
+            const badge = document.getElementById('notif-badge');
+            if (data && data.unread_count > 0) {
+                badge.textContent = data.unread_count > 99 ? '99+' : data.unread_count;
+            } else {
+                badge.textContent = '';
+            }
+        }
+
+        async function updateMsgBadge() {
+            const data = await apiCall('/messages/unread-count');
+            const badge = document.getElementById('msg-badge');
+            if (data && data.unread_count > 0) {
+                badge.textContent = data.unread_count > 99 ? '99+' : data.unread_count;
+            } else {
+                badge.textContent = '';
+            }
+        }
+
+        // Init
+        loadProfile();
+        updateNotifBadge();
+        updateMsgBadge();
+        try { connectWS(); } catch(e) {}
+        setInterval(updateNotifBadge, 60000);
+    </script>
+</body>
+</html>

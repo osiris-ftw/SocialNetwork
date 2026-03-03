@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Search Users - Social Network</title>`n    <link rel="icon" href="data:,">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-content">
+            <a href="feed.html" class="nav-brand">Social Network</a>
+            <div class="nav-links">
+                <a href="feed.html">Feed</a>
+                <a href="search.html" class="active">Search</a>
+                <a href="messaging.html">Messages <span id="msg-badge" class="badge"></span></a>
+                <a href="notifications.html">Notifications <span id="notif-badge" class="badge"></span></a>
+                <a href="javascript:void(0)" id="my-profile-link">Profile</a>
+                <a href="javascript:void(0)" onclick="logout()">Logout</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container" style="max-width:700px;">
+        <div class="search-page-header">
+            <h2>Find People</h2>
+        </div>
+        <div class="search-box-wrap">
+            <input
+                type="search"
+                id="search-input"
+                class="search-input"
+                placeholder="Search by username or bio…"
+                autocomplete="off"
+                aria-label="Search users"
+                autofocus>
+            <span class="search-icon" aria-hidden="true">??</span>
+        </div>
+
+        <div id="search-status" class="search-status"></div>
+        <div id="search-results" class="search-results"></div>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:8000';
+        const WS_URL = 'ws://localhost:8081';
+        let token = localStorage.getItem('token');
+        let currentUser = JSON.parse(localStorage.getItem('user') || '{}');
+        let ws = null;
+        let debounceTimer = null;
+        let lastQuery = '';
+
+        if (!token) { window.location.href = 'login.html'; }
+
+        if (currentUser.username) {
+            document.getElementById('my-profile-link').href = `profile.html?username=${currentUser.username}`;
+        }
+
+        async function apiCall(endpoint, options = {}) {
+            const headers = { 'Authorization': `Bearer ${token}`, ...options.headers };
+            const response = await fetch(`${API_URL}${endpoint}`, { ...options, headers });
+            if (response.status === 401) { logout(); return null; }
+            return response.json();
+        }
+
+        function logout() {
+            if (ws) ws.close();
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            window.location.href = 'login.html';
+        }
+
+        function avatarHtml(avatarUrl, username, size = 44) {
+            const initial = (username || '?')[0].toUpperCase();
+            if (avatarUrl) {
+                return `<img src="${avatarUrl}" alt="${escapeHtml(username)}" style="width:${size}px;height:${size}px;border-radius:50%;object-fit:cover;">`;
+            }
+            return `<div class="avatar-placeholder" style="width:${size}px;height:${size}px;border-radius:50%;background:#1877f2;color:white;display:flex;align-items:center;justify-content:center;font-size:${Math.floor(size/2.2)}px;font-weight:bold;">${initial}</div>`;
+        }
+
+        function escapeHtml(text) {
+            if (!text) return '';
+            const d = document.createElement('div');
+            d.textContent = text;
+            return d.innerHTML;
+        }
+
+        const searchInput = document.getElementById('search-input');
+        searchInput.addEventListener('input', () => {
+            clearTimeout(debounceTimer);
+            const q = searchInput.value.trim();
+            if (q === lastQuery) return;
+            if (q.length === 0) {
+                lastQuery = '';
+                document.getElementById('search-results').innerHTML = '';
+                document.getElementById('search-status').textContent = '';
+                return;
+            }
+            document.getElementById('search-status').textContent = 'Searching…';
+            debounceTimer = setTimeout(() => doSearch(q), 300);
+        });
+
+        searchInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') { searchInput.value = ''; lastQuery = ''; renderResults([]); }
+        });
+
+        async function doSearch(q) {
+            lastQuery = q;
+            const data = await apiCall(`/users/search?q=${encodeURIComponent(q)}&limit=20`);
+            if (lastQuery !== q) return; // stale response
+            document.getElementById('search-status').textContent = '';
+            if (!data) return;
+            renderResults(data.users || []);
+        }
+
+        function renderResults(users) {
+            const container = document.getElementById('search-results');
+            if (users.length === 0) {
+                container.innerHTML = '<div class="empty-list">No users found. Try a different search.</div>';
+                return;
+            }
+            container.innerHTML = users.map(u => renderUserCard(u)).join('');
+        }
+
+        function renderUserCard(u) {
+            const isMe = u.id == currentUser.id;
+            const isMutual = u.is_following && u.is_followed_back;
+            return `
+            <div class="search-user-card" data-user-id="${u.id}">
+                <a href="profile.html?username=${encodeURIComponent(u.username)}" class="search-user-link">
+                    ${avatarHtml(u.avatar_url, u.username, 52)}
+                    <div class="search-user-info">
+                        <strong class="search-username">${escapeHtml(u.username)}</strong>
+                        ${u.display_name && u.display_name !== u.username ? `<span class="search-display-name">${escapeHtml(u.display_name)}</span>` : ''}
+                        ${u.bio ? `<div class="search-user-bio">${escapeHtml(u.bio.substring(0, 80))}</div>` : ''}
+                    </div>
+                </a>
+                <div class="search-user-actions">
+                    ${isMutual ? `<a href="messaging.html?user_id=${u.id}" class="btn btn-secondary btn-sm" style="text-decoration:none;" aria-label="Message ${escapeHtml(u.username)}">Message</a>` : ''}
+                    ${!isMe ? `
+                    <button class="btn ${u.is_following ? 'btn-secondary' : 'btn-primary'} btn-sm follow-btn"
+                        data-user-id="${u.id}"
+                        data-is-following="${u.is_following ? '1' : '0'}"
+                        onclick="toggleFollow(this)"
+                        aria-label="${u.is_following ? 'Unfollow' : 'Follow'} ${escapeHtml(u.username)}">
+                        ${u.is_following ? 'Following' : 'Follow'}
+                    </button>` : '<span class="self-badge">You</span>'}
+                </div>
+            </div>`;
+        }
+
+        async function toggleFollow(btn) {
+            const userId = parseInt(btn.dataset.userId);
+            const isFollowing = btn.dataset.isFollowing === '1';
+
+            // Optimistic update
+            btn.disabled = true;
+            btn.dataset.isFollowing = isFollowing ? '0' : '1';
+            btn.textContent = isFollowing ? 'Follow' : 'Following';
+            btn.className = `btn ${isFollowing ? 'btn-primary' : 'btn-secondary'} btn-sm follow-btn`;
+
+            const method = isFollowing ? 'DELETE' : 'POST';
+            const data = await apiCall(`/users/${userId}/follow`, { method });
+            btn.disabled = false;
+
+            if (!data || data.error) {
+                // Rollback
+                btn.dataset.isFollowing = isFollowing ? '1' : '0';
+                btn.textContent = isFollowing ? 'Following' : 'Follow';
+                btn.className = `btn ${isFollowing ? 'btn-secondary' : 'btn-primary'} btn-sm follow-btn`;
+            }
+        }
+
+        // Real-time notifications badge
+        function connectWS() {
+            ws = new WebSocket(`${WS_URL}?token=${token}`);
+            ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.type === 'notification') updateNotifBadge();
+                } catch(e) {}
+            };
+            ws.onerror = () => {};
+            ws.onclose = () => { setTimeout(connectWS, 5000); };
+        }
+
+        async function updateNotifBadge() {
+            const data = await apiCall('/notifications/unread-count');
+            const badge = document.getElementById('notif-badge');
+            if (data && data.unread_count > 0) {
+                badge.textContent = data.unread_count > 99 ? '99+' : data.unread_count;
+            } else {
+                badge.textContent = '';
+            }
+        }
+
+        async function updateMsgBadge() {
+            const data = await apiCall('/messages/unread-count');
+            const badge = document.getElementById('msg-badge');
+            if (data && data.unread_count > 0) {
+                badge.textContent = data.unread_count > 99 ? '99+' : data.unread_count;
+            } else {
+                badge.textContent = '';
+            }
+        }
+
+        // Pre-populate search from URL ?q=
+        const params = new URLSearchParams(window.location.search);
+        const qParam = params.get('q');
+        if (qParam) {
+            searchInput.value = qParam;
+            doSearch(qParam);
+        }
+
+        updateNotifBadge();
+        updateMsgBadge();
+        try { connectWS(); } catch(e) {}
+        setInterval(updateNotifBadge, 60000);
+    </script>
+</body>
+</html>

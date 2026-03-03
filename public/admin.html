@@ -3,18 +3,21 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Admin Dashboard - Social Network</title>
+    <title>Admin Dashboard - Social Network</title>`n    <link rel="icon" href="data:,">
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <nav class="navbar">
         <div class="nav-content">
-            <h1>Social Network</h1>
+            <a href="feed.html" class="nav-brand">Social Network</a>
             <div class="nav-links">
                 <a href="feed.html">Feed</a>
-                <a href="messaging.html" id="messages-link">Messages</a>
-                <a href="admin.html" class="active" id="admin-link">Admin</a>
-                <a href="#" id="logout-btn">Logout</a>
+                <a href="search.html">Search</a>
+                <a href="messaging.html">Messages <span id="msg-badge" class="badge"></span></a>
+                <a href="notifications.html">Notifications <span id="notif-badge" class="badge"></span></a>
+                <a href="javascript:void(0)" id="my-profile-link">Profile</a>
+                <a href="admin.html" class="active">Admin</a>
+                <a href="javascript:void(0)" id="logout-btn" onclick="logout()">Logout</a>
             </div>
         </div>
     </nav>
@@ -78,15 +81,37 @@
         let token = localStorage.getItem('token');
         let currentUser = null;
 
-        // Check authentication
-        if (!token) {
+        if (!token) { window.location.href = 'login.html'; }
+
+        function logout() {
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
             window.location.href = 'login.html';
+        }
+
+        async function apiCall(endpoint, options = {}) {
+            const headers = { 'Authorization': `Bearer ${token}`, ...options.headers };
+            const response = await fetch(`${API_URL}${endpoint}`, { ...options, headers });
+            if (response.status === 401) { logout(); return null; }
+            return response.json();
+        }
+
+        async function updateNotifBadge() {
+            const data = await apiCall('/notifications/unread-count');
+            const b = document.getElementById('notif-badge');
+            if (b) b.textContent = (data && data.unread_count > 0) ? (data.unread_count > 99 ? '99+' : data.unread_count) : '';
+        }
+
+        async function updateMsgBadge() {
+            const data = await apiCall('/messages/unread-count');
+            const b = document.getElementById('msg-badge');
+            if (b) b.textContent = (data && data.unread_count > 0) ? (data.unread_count > 99 ? '99+' : data.unread_count) : '';
         }
 
         // Fetch current user
         async function fetchCurrentUser() {
             try {
-                const response = await fetch(`${API_URL}/user/me`, {
+                const response = await fetch(`${API_URL}/users/me`, {
                     headers: {
                         'Authorization': `Bearer ${token}`
                     }
@@ -105,6 +130,10 @@
                 const data = await response.json();
                 currentUser = data;
 
+                // Set profile link
+                const pl = document.getElementById('my-profile-link');
+                if (pl && currentUser.username) pl.href = `profile.html?username=${currentUser.username}`;
+
                 // Check if user is admin
                 if (currentUser.role !== 'admin') {
                     alert('Access denied. Admin privileges required.');
@@ -115,12 +144,10 @@
             }
         }
 
-        // Logout
-        document.getElementById('logout-btn').addEventListener('click', (e) => {
-            e.preventDefault();
-            localStorage.removeItem('token');
-            window.location.href = 'login.html';
-        });
+        // Badges & init
+        updateNotifBadge();
+        updateMsgBadge();
+        setInterval(updateNotifBadge, 60000);
 
         // Section navigation
         document.querySelectorAll('.admin-nav-link').forEach(link => {

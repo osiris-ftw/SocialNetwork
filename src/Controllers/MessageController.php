@@ -4,18 +4,24 @@ namespace App\Controllers;
 
 use App\Models\Message;
 use App\Models\Event;
+use App\Models\User;
+use App\Services\NotificationService;
 use App\Middleware\AuthMiddleware;
 
 class MessageController
 {
     private Message $messageModel;
     private Event $eventModel;
+    private User $userModel;
+    private NotificationService $notificationService;
     private AuthMiddleware $authMiddleware;
 
     public function __construct()
     {
         $this->messageModel = new Message();
         $this->eventModel = new Event();
+        $this->userModel = new User();
+        $this->notificationService = new NotificationService();
         $this->authMiddleware = new AuthMiddleware();
     }
 
@@ -100,12 +106,14 @@ class MessageController
 
         $limit = (int)($_GET['limit'] ?? 50);
         $offset = (int)($_GET['offset'] ?? 0);
+        $afterId = (int)($_GET['after_id'] ?? 0);
 
         $messages = $this->messageModel->getConversation(
             $currentUser['id'],
             $otherUserId,
             $limit,
-            $offset
+            $offset,
+            $afterId
         );
 
         echo json_encode(['messages' => $messages]);
@@ -126,20 +134,49 @@ class MessageController
             return;
         }
 
+        $recipientId = (int)$data['recipient_id'];
+        $senderId = (int)$currentUser['id'];
+
+        // Enforce mutual-follow rule (or allow if recipient is admin)
+        $recipient = $this->userModel->find($recipientId);
+        if (!$recipient) {
+            http_response_code(404);
+            echo json_encode(['error' => 'Recipient not found']);
+            return;
+        }
+
+        $senderFollowsRecipient = $this->userModel->isFollowing($senderId, $recipientId);
+        $recipientFollowsSender = $this->userModel->isFollowing($recipientId, $senderId);
+        $isMutual = $senderFollowsRecipient && $recipientFollowsSender;
+        $recipientIsAdmin = !empty($recipient['is_admin']);
+
+        if (!$isMutual && !$recipientIsAdmin) {
+            http_response_code(403);
+            echo json_encode(['error' => 'You can only message users who follow you back (mutual follow required)']);
+            return;
+        }
+
         try {
             $messageId = $this->messageModel->sendMessage(
-                $currentUser['id'],
-                $data['recipient_id'],
+                $senderId,
+                $recipientId,
                 $data['content']
             );
 
             // Log event
             $this->eventModel->logEvent(
-                $currentUser['id'],
+                $senderId,
                 'message_sent',
                 'message',
                 $messageId
             );
+
+            // Fire notification (non-fatal)
+            try {
+                $this->notificationService->notifyNewMessage($recipientId, $senderId, $messageId);
+            } catch (\Exception $notifEx) {
+                error_log('Message notification error: ' . $notifEx->getMessage());
+            }
 
             http_response_code(201);
             echo json_encode([

@@ -5,6 +5,7 @@ namespace App\Controllers;
 use App\Models\Comment;
 use App\Models\Post;
 use App\Models\Event;
+use App\Services\NotificationService;
 use App\Middleware\AuthMiddleware;
 
 class CommentController
@@ -13,6 +14,7 @@ class CommentController
     private Post $postModel;
     private Event $eventModel;
     private AuthMiddleware $authMiddleware;
+    private NotificationService $notificationService;
 
     public function __construct()
     {
@@ -20,6 +22,7 @@ class CommentController
         $this->postModel = new Post();
         $this->eventModel = new Event();
         $this->authMiddleware = new AuthMiddleware();
+        $this->notificationService = new NotificationService();
     }
 
     public function handle(string $method, array $parts): void
@@ -77,6 +80,35 @@ class CommentController
                 'comment',
                 $commentId
             );
+
+            // Fire notifications (non-fatal)
+            try {
+                $post = $this->postModel->find((int)$data['post_id']);
+                if ($post) {
+                    if (!empty($data['parent_comment_id'])) {
+                        // Reply to a comment — notify original commenter
+                        $parentComment = $this->commentModel->find((int)$data['parent_comment_id']);
+                        if ($parentComment && $parentComment['user_id'] != $currentUser['id']) {
+                            $this->notificationService->notifyCommentReply(
+                                (int)$parentComment['user_id'],
+                                (int)$currentUser['id'],
+                                $commentId
+                            );
+                        }
+                    }
+                    // Notify post owner (if different from commenter)
+                    if ($post['user_id'] != $currentUser['id']) {
+                        $this->notificationService->notifyNewComment(
+                            (int)$post['user_id'],
+                            (int)$currentUser['id'],
+                            (int)$data['post_id'],
+                            $commentId
+                        );
+                    }
+                }
+            } catch (\Exception $notifEx) {
+                error_log('Comment notification error: ' . $notifEx->getMessage());
+            }
 
             $comment = $this->commentModel->getComment($commentId);
 

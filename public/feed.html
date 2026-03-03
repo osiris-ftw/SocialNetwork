@@ -3,18 +3,20 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Feed - Social Network</title>
+    <title>Feed - Social Network</title>`n    <link rel="icon" href="data:,">
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <nav class="navbar">
         <div class="nav-content">
-            <h1>Social Network</h1>
+            <a href="feed.html" class="nav-brand">Social Network</a>
             <div class="nav-links">
-                <a href="feed.html">Feed</a>
+                <a href="feed.html" class="active">Feed</a>
+                <a href="search.html">Search</a>
                 <a href="messaging.html">Messages <span id="msg-badge" class="badge"></span></a>
-                <a href="#" id="notifications-link">Notifications <span id="notif-badge" class="badge"></span></a>
-                <a href="#" onclick="logout()">Logout</a>
+                <a href="notifications.html">Notifications <span id="notif-badge" class="badge"></span></a>
+                <a href="javascript:void(0)" id="my-profile-link">Profile</a>
+                <a href="javascript:void(0)" onclick="logout()">Logout</a>
             </div>
         </div>
     </nav>
@@ -24,7 +26,11 @@
             <!-- Sidebar -->
             <div class="sidebar">
                 <div class="profile-card">
-                    <h3 id="user-username"></h3>
+                    <a href="javascript:void(0)" id="sidebar-avatar-link">
+                        <div id="sidebar-avatar" style="margin-bottom:10px;"></div>
+                    </a>
+                    <h3 id="user-username" style="margin-bottom:5px;"></h3>
+                    <div id="user-bio" style="font-size:13px;color:#666;margin-bottom:12px;"></div>
                     <div class="stats">
                         <div class="stat">
                             <span class="stat-value" id="posts-count">0</span>
@@ -40,171 +46,398 @@
                         </div>
                     </div>
                 </div>
+                <div class="sidebar-shortcuts" style="margin-top:16px;">
+                    <a href="search.html" class="sidebar-shortcut-link">?? Find People</a>
+                    <a href="notifications.html" class="sidebar-shortcut-link">?? Notifications</a>
+                    <a href="messaging.html" class="sidebar-shortcut-link">?? Messages</a>
+                </div>
             </div>
 
             <!-- Main Feed -->
             <div class="main-feed">
                 <!-- Create Post -->
                 <div class="create-post-card">
-                    <h3>Create Post</h3>
+                    <div class="create-post-top">
+                        <div id="create-post-avatar"></div>
+                        <textarea id="post-content" class="create-post-textarea" placeholder="What's on your mind?" rows="3" aria-label="Post content"></textarea>
+                    </div>
                     <form id="create-post-form">
-                        <textarea id="post-content" placeholder="What's on your mind?" rows="3" required></textarea>
-                        <div class="post-actions">
-                            <input type="file" id="post-media" accept="image/*" style="display: none;">
-                            <button type="button" class="btn btn-secondary" onclick="document.getElementById('post-media').click()">Add Image</button>
-                            <button type="submit" class="btn btn-primary">Post</button>
+                        <div class="post-form-actions">
+                            <label class="btn btn-secondary" style="cursor:pointer;">
+                                ?? Photo
+                                <input type="file" id="post-media" accept="image/*,video/*" style="display:none;" onchange="previewMedia(this)">
+                            </label>
+                            <button type="submit" class="btn btn-primary" style="width:auto;" id="post-submit-btn">Post</button>
                         </div>
-                        <div id="media-preview"></div>
+                        <div id="media-preview" class="media-preview-area"></div>
                     </form>
                 </div>
 
                 <!-- Feed Posts -->
+                <div id="new-posts-banner" onclick="dismissNewPosts()" style="display:none;background:#1877f2;color:white;text-align:center;padding:10px 16px;border-radius:8px;margin-bottom:12px;cursor:pointer;font-weight:600;font-size:14px;">? New posts ó click to load</div>
                 <div id="feed-container"></div>
-                <div class="loading" id="loading">Loading...</div>
+                <div class="loading" id="loading">Loading feedÖ</div>
+                <button id="load-more-feed-btn" class="btn btn-secondary" style="display:none; margin:10px auto;" onclick="loadMoreFeed()">Load More</button>
             </div>
         </div>
     </div>
 
     <script>
         const API_URL = 'http://localhost:8000';
+        const WS_URL = 'ws://localhost:8081';
         let token = localStorage.getItem('token');
         let currentUser = JSON.parse(localStorage.getItem('user') || '{}');
+        let feedOffset = 0;
+        const feedLimit = 10;
+        let hasMoreFeed = true;
+        let ws = null;
+        let newestPostId = 0;
 
-        if (!token) {
-            window.location.href = 'login.html';
+        if (!token) { window.location.href = 'login.html'; }
+
+        if (currentUser.username) {
+            const pl = document.getElementById('my-profile-link');
+            if (pl) pl.href = `profile.html?username=${currentUser.username}`;
+            const sal = document.getElementById('sidebar-avatar-link');
+            if (sal) sal.href = `profile.html?username=${currentUser.username}`;
         }
 
         async function apiCall(endpoint, options = {}) {
-            const headers = {
-                'Authorization': `Bearer ${token}`,
-                ...options.headers
-            };
-
-            const response = await fetch(`${API_URL}${endpoint}`, {
-                ...options,
-                headers
-            });
-
-            if (response.status === 401) {
-                logout();
-                return null;
-            }
-
+            const headers = { 'Authorization': `Bearer ${token}`, ...options.headers };
+            const response = await fetch(`${API_URL}${endpoint}`, { ...options, headers });
+            if (response.status === 401) { logout(); return null; }
             return response.json();
         }
 
         function logout() {
+            if (ws) ws.close();
             localStorage.removeItem('token');
             localStorage.removeItem('user');
             window.location.href = 'login.html';
         }
 
-        async function loadProfile() {
-            const data = await apiCall(`/users/me`);
-            if (data) {
-                document.getElementById('user-username').textContent = `@${data.username}`;
-                document.getElementById('posts-count').textContent = data.stats.posts_count;
-                document.getElementById('followers-count').textContent = data.stats.followers_count;
-                document.getElementById('following-count').textContent = data.stats.following_count;
+        function avatarHtml(avatarUrl, username, size = 40) {
+            const initial = (username || '?')[0].toUpperCase();
+            if (avatarUrl) {
+                return `<img src="${avatarUrl}" alt="${escapeHtml(username)}" style="width:${size}px;height:${size}px;border-radius:50%;object-fit:cover;">`;
             }
-        }
-
-        async function loadFeed() {
-            const data = await apiCall('/posts');
-            if (data && data.posts) {
-                const feedContainer = document.getElementById('feed-container');
-                feedContainer.innerHTML = '';
-
-                data.posts.forEach(post => {
-                    feedContainer.innerHTML += createPostHTML(post);
-                });
-            }
-            document.getElementById('loading').style.display = 'none';
-        }
-
-        function createPostHTML(post) {
-            return `
-                <div class="post-card" data-post-id="${post.id}">
-                    <div class="post-header">
-                        <img src="${post.avatar_url || 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2240%22 height=%2240%22%3E%3Crect width=%2240%22 height=%2240%22 fill=%22%23ddd%22/%3E%3Ctext x=%2250%25%22 y=%2250%25%22 dominant-baseline=%22middle%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%2218%22%3E?%3C/text%3E%3C/svg%3E'}" alt="Avatar" class="avatar">
-                        <div>
-                            <strong>${post.username}</strong>
-                            <div class="post-time">${new Date(post.created_at).toLocaleString()}</div>
-                        </div>
-                    </div>
-                    <div class="post-content">${escapeHtml(post.content)}</div>
-                    ${post.media_url ? `<img src="${post.media_url}" alt="Post media" class="post-image">` : ''}
-                    <div class="post-actions">
-                        <button class="btn-icon" onclick="likePost(${post.id})">
-                            ‚ù§Ô∏è ${post.like_count || 0}
-                        </button>
-                        <button class="btn-icon">
-                            üí¨ ${post.comment_count || 0}
-                        </button>
-                    </div>
-                </div>
-            `;
+            return `<div style="width:${size}px;height:${size}px;border-radius:50%;background:#1877f2;color:white;display:flex;align-items:center;justify-content:center;font-size:${Math.floor(size/2.2)}px;font-weight:bold;flex-shrink:0;">${initial}</div>`;
         }
 
         function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
+            if (!text) return '';
+            const d = document.createElement('div');
+            d.textContent = text;
+            return d.innerHTML;
         }
 
-        async function likePost(postId) {
-            await apiCall(`/posts/${postId}/like`, { method: 'POST' });
-            loadFeed();
+        function formatTime(ts) {
+            if (!ts) return '';
+            const d = new Date(ts);
+            const diff = Math.floor((Date.now() - d) / 1000);
+            if (diff < 60) return `${diff}s ago`;
+            if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
+            if (diff < 86400) return `${Math.floor(diff/3600)}h ago`;
+            return d.toLocaleDateString();
         }
+
+        async function loadProfile() {
+            const data = await apiCall('/users/me');
+            if (data && !data.error) {
+                document.getElementById('user-username').textContent = `@${data.username}`;
+                const bioEl = document.getElementById('user-bio');
+                if (bioEl) bioEl.textContent = data.bio || '';
+                document.getElementById('posts-count').textContent = data.stats?.posts_count ?? 0;
+                document.getElementById('followers-count').textContent = data.stats?.followers_count ?? 0;
+                document.getElementById('following-count').textContent = data.stats?.following_count ?? 0;
+                const sidebarAvatar = document.getElementById('sidebar-avatar');
+                if (sidebarAvatar) sidebarAvatar.innerHTML = avatarHtml(data.avatar_url, data.username, 52);
+                const createAvatar = document.getElementById('create-post-avatar');
+                if (createAvatar) createAvatar.innerHTML = avatarHtml(data.avatar_url, data.username, 36);
+                const pl = document.getElementById('my-profile-link');
+                if (pl) pl.href = `profile.html?username=${data.username}`;
+                const sal = document.getElementById('sidebar-avatar-link');
+                if (sal) sal.href = `profile.html?username=${data.username}`;
+                currentUser = { ...currentUser, ...data };
+                localStorage.setItem('user', JSON.stringify(currentUser));
+            }
+        }
+
+        function createPostHTML(post) {
+            const liked = post.is_liked ? '\u2764\uFE0F' : '\uD83E\uDD0D';
+            const isOwn = post.user_id == currentUser.id;
+            return `
+            <div class="post-card" id="post-${post.id}">
+                <div class="post-header">
+                    <a href="profile.html?username=${encodeURIComponent(post.username)}" class="post-author-link">
+                        ${avatarHtml(post.avatar_url, post.username, 42)}
+                        <div>
+                            <strong>${escapeHtml(post.username)}</strong>
+                            <div class="post-time">${formatTime(post.created_at)}</div>
+                        </div>
+                    </a>
+                    ${isOwn ? `<button class="btn-icon post-menu-btn" onclick="deletePost(${post.id})" title="Delete post">\uD83D\uDDD1</button>` : ''}
+                </div>
+                <div class="post-content">${escapeHtml(post.content)}</div>
+                ${post.media_url ? `<img src="${post.media_url}" alt="Post media" class="post-image" loading="lazy">` : ''}
+                <div class="post-actions-bar">
+                    <button class="btn-icon like-btn" data-post-id="${post.id}" data-liked="${post.is_liked ? '1' : '0'}"
+                        onclick="toggleLike(this)">
+                        ${liked} <span class="like-count">${post.like_count || 0}</span>
+                    </button>
+                    <button class="btn-icon" onclick="toggleComments(${post.id})">
+                        \uD83D\uDCAC <span id="comment-count-${post.id}">${post.comment_count || 0}</span>
+                    </button>
+                </div>
+                <div class="comments-section" id="comments-${post.id}" style="display:none;">
+                    <div class="comments-list" id="comments-list-${post.id}"></div>
+                    <form class="comment-form" onsubmit="submitComment(event, ${post.id})">
+                        <input type="text" class="comment-input" placeholder="Write a comment..." required>
+                        <button type="submit" class="btn-comment-submit">Post</button>
+                    </form>
+                </div>
+            </div>`;
+        }
+
+        async function toggleLike(btn) {
+            const postId = parseInt(btn.dataset.postId);
+            const isLiked = btn.dataset.liked === '1';
+            const countEl = btn.querySelector('.like-count');
+            const prevCount = parseInt(countEl.textContent) || 0;
+            const newCount = isLiked ? prevCount - 1 : prevCount + 1;
+            btn.dataset.liked = isLiked ? '0' : '1';
+            btn.innerHTML = `${isLiked ? '\uD83E\uDD0D' : '\u2764\uFE0F'} <span class="like-count">${newCount}</span>`;
+            const method = isLiked ? 'DELETE' : 'POST';
+            const data = await apiCall(`/posts/${postId}/like`, { method });
+            if (data && data.like_count !== undefined) {
+                btn.innerHTML = `${data.is_liked ? '\u2764\uFE0F' : '\uD83E\uDD0D'} <span class="like-count">${data.like_count}</span>`;
+                btn.dataset.liked = data.is_liked ? '1' : '0';
+            } else if (!data || data.error) {
+                btn.dataset.liked = isLiked ? '1' : '0';
+                btn.innerHTML = `${isLiked ? '\u2764\uFE0F' : '\uD83E\uDD0D'} <span class="like-count">${prevCount}</span>`;
+            }
+        }
+
+        async function toggleComments(postId) {
+            const section = document.getElementById(`comments-${postId}`);
+            const isHidden = section.style.display === 'none';
+            section.style.display = isHidden ? 'block' : 'none';
+            if (isHidden) {
+                const listEl = document.getElementById(`comments-list-${postId}`);
+                if (!listEl.dataset.loaded) {
+                    listEl.innerHTML = '<div style="padding:10px;color:#888;">Loading...</div>';
+                    const data = await apiCall(`/posts/${postId}/comments`);
+                    listEl.dataset.loaded = '1';
+                    listEl.innerHTML = '';
+                    if (data && data.comments && data.comments.length) {
+                        data.comments.forEach(c => listEl.insertAdjacentHTML('beforeend', renderComment(c)));
+                    } else {
+                        listEl.innerHTML = '<div style="padding:8px;color:#888;font-size:13px;">No comments yet.</div>';
+                    }
+                }
+            }
+        }
+
+        function renderComment(c) {
+            const replies = (c.replies && c.replies.length) ? c.replies.map(r => `
+                <div class="comment-reply">
+                    <div class="comment-author">
+                        ${avatarHtml(r.avatar_url, r.username, 24)}
+                        <a href="profile.html?username=${encodeURIComponent(r.username)}" class="comment-username">${escapeHtml(r.username)}</a>
+                        <span class="comment-time">${formatTime(r.created_at)}</span>
+                    </div>
+                    <div class="comment-content">${escapeHtml(r.content)}</div>
+                </div>`).join('') : '';
+            return `<div class="comment-item">
+                <div class="comment-author">
+                    ${avatarHtml(c.avatar_url, c.username, 28)}
+                    <a href="profile.html?username=${encodeURIComponent(c.username)}" class="comment-username">${escapeHtml(c.username)}</a>
+                    <span class="comment-time">${formatTime(c.created_at)}</span>
+                </div>
+                <div class="comment-content">${escapeHtml(c.content)}</div>
+                ${replies}
+            </div>`;
+        }
+
+        async function submitComment(e, postId) {
+            e.preventDefault();
+            const input = e.target.querySelector('.comment-input');
+            const content = input.value.trim();
+            if (!content) return;
+            input.disabled = true;
+            const data = await apiCall(`/posts/${postId}/comments`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content })
+            });
+            input.disabled = false;
+            if (data && data.comment) {
+                input.value = '';
+                const listEl = document.getElementById(`comments-list-${postId}`);
+                const noComments = listEl.querySelector('[style*="No comments"]');
+                if (noComments) noComments.remove();
+                listEl.insertAdjacentHTML('beforeend', renderComment(data.comment));
+                const countEl = document.getElementById(`comment-count-${postId}`);
+                if (countEl) countEl.textContent = parseInt(countEl.textContent || 0) + 1;
+            }
+        }
+
+        async function deletePost(postId) {
+            if (!confirm('Delete this post?')) return;
+            const data = await apiCall(`/posts/${postId}`, { method: 'DELETE' });
+            if (data && !data.error) {
+                const el = document.getElementById(`post-${postId}`);
+                if (el) el.remove();
+            }
+        }
+
+        function previewMedia(input) {
+            const preview = document.getElementById('media-preview');
+            preview.innerHTML = '';
+            if (input.files && input.files[0]) {
+                const file = input.files[0];
+                if (file.type.startsWith('image/')) {
+                    const reader = new FileReader();
+                    reader.onload = (ev) => {
+                        preview.innerHTML = `<div style="position:relative;display:inline-block;">
+                            <img src="${ev.target.result}" style="max-height:200px;border-radius:8px;margin-top:10px;">
+                            <button type="button" onclick="clearMedia()" style="position:absolute;top:14px;right:4px;background:rgba(0,0,0,0.6);border:none;color:white;border-radius:50%;width:22px;height:22px;cursor:pointer;font-size:14px;line-height:1;">x</button>
+                        </div>`;
+                    };
+                    reader.readAsDataURL(file);
+                } else {
+                    preview.innerHTML = `<div style="margin-top:8px;color:#666;">Video: ${escapeHtml(file.name)}</div>`;
+                }
+            }
+        }
+
+        function clearMedia() {
+            document.getElementById('post-media').value = '';
+            document.getElementById('media-preview').innerHTML = '';
+        }
+
+        async function loadFeed(reset = false) {
+            if (reset) {
+                feedOffset = 0;
+                hasMoreFeed = true;
+                document.getElementById('feed-container').innerHTML = '';
+                document.getElementById('new-posts-banner').style.display = 'none';
+            }
+            if (!hasMoreFeed) return;
+            document.getElementById('loading').style.display = 'block';
+            const data = await apiCall(`/posts?limit=${feedLimit}&offset=${feedOffset}`);
+            document.getElementById('loading').style.display = 'none';
+            if (!data || !data.posts) return;
+            const container = document.getElementById('feed-container');
+            data.posts.forEach(post => container.insertAdjacentHTML('beforeend', createPostHTML(post)));
+            if (reset && data.posts.length > 0) newestPostId = data.posts[0].id;
+            feedOffset += data.posts.length;
+            hasMoreFeed = data.posts.length === feedLimit;
+            const loadMoreBtn = document.getElementById('load-more-feed-btn');
+            if (loadMoreBtn) loadMoreBtn.style.display = hasMoreFeed ? 'block' : 'none';
+        }
+
+        async function pollNewPosts() {
+            if (!newestPostId) return;
+            const data = await apiCall('/posts?limit=1&offset=0');
+            if (data && data.posts && data.posts.length > 0 && data.posts[0].id > newestPostId) {
+                const banner = document.getElementById('new-posts-banner');
+                banner.style.display = 'block';
+                banner.textContent = '? New posts available ó click to load';
+            }
+        }
+
+        function dismissNewPosts() {
+            loadFeed(true);
+            loadProfile();
+        }
+
+        function loadMoreFeed() { loadFeed(); }
 
         document.getElementById('create-post-form').addEventListener('submit', async (e) => {
             e.preventDefault();
-            const content = document.getElementById('post-content').value;
-
-            // Handle file upload if present
+            const content = document.getElementById('post-content').value.trim();
+            if (!content) return;
+            const submitBtn = document.getElementById('post-submit-btn');
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Posting...';
             let mediaUrl = null;
+            let mediaType = 'none';
             const fileInput = document.getElementById('post-media');
             if (fileInput.files.length > 0) {
                 const formData = new FormData();
                 formData.append('image', fileInput.files[0]);
-
                 const uploadResponse = await fetch(`${API_URL}/upload/image`, {
                     method: 'POST',
                     headers: { 'Authorization': `Bearer ${token}` },
                     body: formData
                 });
-
                 const uploadData = await uploadResponse.json();
-                mediaUrl = uploadData.data?.url;
+                mediaUrl = uploadData.data?.url || null;
+                mediaType = fileInput.files[0].type.startsWith('video/') ? 'video' : 'image';
             }
-
             const response = await fetch(`${API_URL}/posts`, {
                 method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    content,
-                    media_type: mediaUrl ? 'image' : 'none',
-                    media_url: mediaUrl
-                })
+                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content, media_type: mediaType, media_url: mediaUrl })
             });
-
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Post';
             if (response.ok) {
                 document.getElementById('post-content').value = '';
-                fileInput.value = '';
-                document.getElementById('media-preview').innerHTML = '';
-                loadFeed();
+                clearMedia();
+                loadFeed(true);
+                loadProfile();
             }
         });
 
-        // Initial load
-        loadProfile();
-        loadFeed();
+        function connectWS() {
+            try {
+                ws = new WebSocket(`${WS_URL}?token=${token}`);
+                ws.onopen = () => console.log('[WS] Feed: connected');
+                ws.onmessage = (event) => {
+                    try {
+                        const data = JSON.parse(event.data);
+                        if (data.type === 'notification') { updateNotifBadge(); }
+                        if (data.type === 'new_post') { pollNewPosts(); }
+                    } catch (err) {}
+                };
+                ws.onerror = () => {};
+                ws.onclose = () => { setTimeout(connectWS, 5000); };
+            } catch (err) { console.warn('[WS] Feed:', err); }
+        }
 
-        // Auto-refresh feed every 30 seconds
-        setInterval(loadFeed, 30000);
+        async function updateNotifBadge() {
+            const data = await apiCall('/notifications/unread-count');
+            const b = document.getElementById('notif-badge');
+            if (b) b.textContent = (data && data.unread_count > 0) ? (data.unread_count > 99 ? '99+' : data.unread_count) : '';
+        }
+
+        async function updateMsgBadge() {
+            const data = await apiCall('/messages/unread-count');
+            const b = document.getElementById('msg-badge');
+            if (b) b.textContent = (data && data.unread_count > 0) ? (data.unread_count > 99 ? '99+' : data.unread_count) : '';
+        }
+
+        function handleHash() {
+            const hash = window.location.hash;
+            if (hash && hash.startsWith('#post-')) {
+                setTimeout(() => {
+                    const el = document.getElementById(hash.slice(1));
+                    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }, 900);
+            }
+        }
+
+        loadProfile();
+        loadFeed(true);
+        updateNotifBadge();
+        updateMsgBadge();
+        connectWS();
+        setInterval(updateNotifBadge, 60000);
+        setInterval(pollNewPosts, 30000);
+        window.addEventListener('hashchange', handleHash);
+        handleHash();
     </script>
 </body>
 </html>
