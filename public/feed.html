@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Feed - Social Network</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-content">
+            <h1>Social Network</h1>
+            <div class="nav-links">
+                <a href="feed.html">Feed</a>
+                <a href="messaging.html">Messages <span id="msg-badge" class="badge"></span></a>
+                <a href="#" id="notifications-link">Notifications <span id="notif-badge" class="badge"></span></a>
+                <a href="#" onclick="logout()">Logout</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="feed-layout">
+            <!-- Sidebar -->
+            <div class="sidebar">
+                <div class="profile-card">
+                    <h3 id="user-username"></h3>
+                    <div class="stats">
+                        <div class="stat">
+                            <span class="stat-value" id="posts-count">0</span>
+                            <span class="stat-label">Posts</span>
+                        </div>
+                        <div class="stat">
+                            <span class="stat-value" id="followers-count">0</span>
+                            <span class="stat-label">Followers</span>
+                        </div>
+                        <div class="stat">
+                            <span class="stat-value" id="following-count">0</span>
+                            <span class="stat-label">Following</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Main Feed -->
+            <div class="main-feed">
+                <!-- Create Post -->
+                <div class="create-post-card">
+                    <h3>Create Post</h3>
+                    <form id="create-post-form">
+                        <textarea id="post-content" placeholder="What's on your mind?" rows="3" required></textarea>
+                        <div class="post-actions">
+                            <input type="file" id="post-media" accept="image/*" style="display: none;">
+                            <button type="button" class="btn btn-secondary" onclick="document.getElementById('post-media').click()">Add Image</button>
+                            <button type="submit" class="btn btn-primary">Post</button>
+                        </div>
+                        <div id="media-preview"></div>
+                    </form>
+                </div>
+
+                <!-- Feed Posts -->
+                <div id="feed-container"></div>
+                <div class="loading" id="loading">Loading...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:8000';
+        let token = localStorage.getItem('token');
+        let currentUser = JSON.parse(localStorage.getItem('user') || '{}');
+
+        if (!token) {
+            window.location.href = 'login.html';
+        }
+
+        async function apiCall(endpoint, options = {}) {
+            const headers = {
+                'Authorization': `Bearer ${token}`,
+                ...options.headers
+            };
+
+            const response = await fetch(`${API_URL}${endpoint}`, {
+                ...options,
+                headers
+            });
+
+            if (response.status === 401) {
+                logout();
+                return null;
+            }
+
+            return response.json();
+        }
+
+        function logout() {
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            window.location.href = 'login.html';
+        }
+
+        async function loadProfile() {
+            const data = await apiCall(`/users/me`);
+            if (data) {
+                document.getElementById('user-username').textContent = `@${data.username}`;
+                document.getElementById('posts-count').textContent = data.stats.posts_count;
+                document.getElementById('followers-count').textContent = data.stats.followers_count;
+                document.getElementById('following-count').textContent = data.stats.following_count;
+            }
+        }
+
+        async function loadFeed() {
+            const data = await apiCall('/posts');
+            if (data && data.posts) {
+                const feedContainer = document.getElementById('feed-container');
+                feedContainer.innerHTML = '';
+
+                data.posts.forEach(post => {
+                    feedContainer.innerHTML += createPostHTML(post);
+                });
+            }
+            document.getElementById('loading').style.display = 'none';
+        }
+
+        function createPostHTML(post) {
+            return `
+                <div class="post-card" data-post-id="${post.id}">
+                    <div class="post-header">
+                        <img src="${post.avatar_url || 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2240%22 height=%2240%22%3E%3Crect width=%2240%22 height=%2240%22 fill=%22%23ddd%22/%3E%3Ctext x=%2250%25%22 y=%2250%25%22 dominant-baseline=%22middle%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%2218%22%3E?%3C/text%3E%3C/svg%3E'}" alt="Avatar" class="avatar">
+                        <div>
+                            <strong>${post.username}</strong>
+                            <div class="post-time">${new Date(post.created_at).toLocaleString()}</div>
+                        </div>
+                    </div>
+                    <div class="post-content">${escapeHtml(post.content)}</div>
+                    ${post.media_url ? `<img src="${post.media_url}" alt="Post media" class="post-image">` : ''}
+                    <div class="post-actions">
+                        <button class="btn-icon" onclick="likePost(${post.id})">
+                            ❤️ ${post.like_count || 0}
+                        </button>
+                        <button class="btn-icon">
+                            💬 ${post.comment_count || 0}
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        async function likePost(postId) {
+            await apiCall(`/posts/${postId}/like`, { method: 'POST' });
+            loadFeed();
+        }
+
+        document.getElementById('create-post-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const content = document.getElementById('post-content').value;
+
+            // Handle file upload if present
+            let mediaUrl = null;
+            const fileInput = document.getElementById('post-media');
+            if (fileInput.files.length > 0) {
+                const formData = new FormData();
+                formData.append('image', fileInput.files[0]);
+
+                const uploadResponse = await fetch(`${API_URL}/upload/image`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${token}` },
+                    body: formData
+                });
+
+                const uploadData = await uploadResponse.json();
+                mediaUrl = uploadData.data?.url;
+            }
+
+            const response = await fetch(`${API_URL}/posts`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    content,
+                    media_type: mediaUrl ? 'image' : 'none',
+                    media_url: mediaUrl
+                })
+            });
+
+            if (response.ok) {
+                document.getElementById('post-content').value = '';
+                fileInput.value = '';
+                document.getElementById('media-preview').innerHTML = '';
+                loadFeed();
+            }
+        });
+
+        // Initial load
+        loadProfile();
+        loadFeed();
+
+        // Auto-refresh feed every 30 seconds
+        setInterval(loadFeed, 30000);
+    </script>
+</body>
+</html>

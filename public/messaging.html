@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Messages - Social Network</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-content">
+            <h1>Social Network</h1>
+            <div class="nav-links">
+                <a href="feed.html">Feed</a>
+                <a href="messaging.html" class="active">Messages</a>
+                <a href="#">Notifications</a>
+                <a href="#" onclick="logout()">Logout</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="messaging-layout">
+            <!-- Conversations List -->
+            <div class="conversations-sidebar">
+                <h3>Messages</h3>
+                <div id="conversations-list"></div>
+            </div>
+
+            <!-- Chat Area -->
+            <div class="chat-area">
+                <div id="chat-empty" class="chat-empty">
+                    Select a conversation to start messaging
+                </div>
+
+                <div id="chat-container" style="display: none;">
+                    <div class="chat-header" id="chat-header"></div>
+                    <div class="chat-messages" id="chat-messages"></div>
+                    <div class="chat-input">
+                        <form id="send-message-form">
+                            <input type="text" id="message-input" placeholder="Type a message..." required>
+                            <button type="submit" class="btn btn-primary">Send</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:8000';
+        const WS_URL = 'ws://localhost:8081';
+        let token = localStorage.getItem('token');
+        let currentUser = JSON.parse(localStorage.getItem('user') || '{}');
+        let ws = null;
+        let currentConversation = null;
+
+        if (!token) {
+            window.location.href = 'login.html';
+        }
+
+        async function apiCall(endpoint, options = {}) {
+            const headers = {
+                'Authorization': `Bearer ${token}`,
+                ...options.headers
+            };
+
+            const response = await fetch(`${API_URL}${endpoint}`, {
+                ...options,
+                headers
+            });
+
+            if (response.status === 401) {
+                logout();
+                return null;
+            }
+
+            return response.json();
+        }
+
+        function logout() {
+            if (ws) ws.close();
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            window.location.href = 'login.html';
+        }
+
+        // Initialize WebSocket connection
+        function connectWebSocket() {
+            ws = new WebSocket(`${WS_URL}?token=${token}`);
+
+            ws.onopen = () => {
+                console.log('WebSocket connected');
+            };
+
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                console.log('WebSocket message:', data);
+
+                if (data.type === 'message' && currentConversation && data.sender_id == currentConversation.id) {
+                    appendMessage(data.sender_id, data.content, false);
+                } else if (data.type === 'message_sent') {
+                    // Message sent confirmation
+                } else if (data.type === 'typing' && currentConversation && data.user_id == currentConversation.id) {
+                    // Show typing indicator
+                }
+
+                // Refresh conversations list to update unread counts
+                loadConversations();
+            };
+
+            ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
+            };
+
+            ws.onclose = () => {
+                console.log('WebSocket disconnected');
+                // Reconnect after 3 seconds
+                setTimeout(connectWebSocket, 3000);
+            };
+        }
+
+        async function loadConversations() {
+            const data = await apiCall('/messages/conversations');
+            if (data && data.conversations) {
+                const list = document.getElementById('conversations-list');
+                list.innerHTML = '';
+
+                data.conversations.forEach(conv => {
+                    const unreadBadge = conv.unread_count > 0 ? 
+                        `<span class="badge">${conv.unread_count}</span>` : '';
+                    
+                    list.innerHTML += `
+                        <div class="conversation-item" onclick="openConversation(${conv.other_user_id}, '${conv.other_username}')">
+                            <img src="${conv.other_avatar || 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2240%22 height=%2240%22%3E%3Crect width=%2240%22 height=%2240%22 fill=%22%23ddd%22/%3E%3Ctext x=%2250%25%22 y=%2250%25%22 dominant-baseline=%22middle%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%2218%22%3E?%3C/text%3E%3C/svg%3E'}" alt="Avatar" class="avatar">
+                            <div class="conversation-info">
+                                <strong>${conv.other_username}</strong>
+                                <div class="last-message">${escapeHtml(conv.content)}</div>
+                            </div>
+                            ${unreadBadge}
+                        </div>
+                    `;
+                });
+            }
+        }
+
+        async function openConversation(userId, username) {
+            currentConversation = { id: userId, username: username };
+
+            // Show chat container
+            document.getElementById('chat-empty').style.display = 'none';
+            document.getElementById('chat-container').style.display = 'flex';
+
+            // Update header
+            document.getElementById('chat-header').innerHTML = `
+                <h3>${username}</h3>
+            `;
+
+            // Load messages
+            const data = await apiCall(`/messages/conversation?user_id=${userId}`);
+            if (data && data.messages) {
+                const messagesContainer = document.getElementById('chat-messages');
+                messagesContainer.innerHTML = '';
+
+                data.messages.reverse().forEach(msg => {
+                    appendMessage(msg.sender_id, msg.content, msg.sender_id == currentUser.id);
+                });
+
+                // Scroll to bottom
+                messagesContainer.scrollTop = messagesContainer.scrollHeight;
+
+                // Mark as read
+                await apiCall('/messages/mark-read', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ user_id: userId })
+                });
+            }
+        }
+
+        function appendMessage(senderId, content, isSent) {
+            const messagesContainer = document.getElementById('chat-messages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${isSent ? 'message-sent' : 'message-received'}`;
+            messageDiv.innerHTML = `
+                <div class="message-bubble">
+                    ${escapeHtml(content)}
+                </div>
+            `;
+            messagesContainer.appendChild(messageDiv);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        document.getElementById('send-message-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            if (!currentConversation) return;
+
+            const input = document.getElementById('message-input');
+            const content = input.value.trim();
+
+            if (!content) return;
+
+            // Send via API
+            const response = await fetch(`${API_URL}/messages/send`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    recipient_id: currentConversation.id,
+                    content: content
+                })
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                
+                // Also send via WebSocket for real-time delivery
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({
+                        type: 'message',
+                        recipient_id: currentConversation.id,
+                        content: content,
+                        message_id: data.message_id
+                    }));
+                }
+
+                appendMessage(currentUser.id, content, true);
+                input.value = '';
+            }
+        });
+
+        // Initialize
+        connectWebSocket();
+        loadConversations();
+
+        // Refresh conversations every 10 seconds
+        setInterval(loadConversations, 10000);
+    </script>
+</body>
+</html>

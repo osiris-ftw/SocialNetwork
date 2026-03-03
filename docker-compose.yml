@@ -1,0 +1,95 @@
+services:
+  # PHP-FPM Service
+  php:
+    build:
+      context: .
+      dockerfile: docker/php/Dockerfile
+    container_name: social_network_php
+    volumes:
+      - .:/var/www/html
+    environment:
+      - PHP_OPCACHE_VALIDATE_TIMESTAMPS=1
+    env_file:
+      - .env
+    networks:
+      - social_network
+      - docker_default
+    external_links:
+      - chatbot-db:mysql
+    depends_on:
+      - redis
+
+  # Nginx Web Server
+  nginx:
+    image: nginx:alpine
+    container_name: social_network_nginx
+    ports:
+      - "8000:80"
+    volumes:
+      - .:/var/www/html
+      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf
+    networks:
+      - social_network
+    depends_on:
+      - php
+
+  # Redis for sessions and pub/sub
+  redis:
+    image: redis:7-alpine
+    container_name: social_network_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - social_network
+
+  # WebSocket Server (Ratchet)
+  websocket:
+    build:
+      context: .
+      dockerfile: docker/php/Dockerfile
+    container_name: social_network_websocket
+    command: php /var/www/html/websocket-server.php
+    volumes:
+      - .:/var/www/html
+    ports:
+      - "8081:8081"
+    env_file:
+      - .env
+    networks:
+      - social_network
+      - docker_default
+    external_links:
+      - chatbot-db:mysql
+    depends_on:
+      - redis
+
+  # Queue Worker for background jobs
+  queue_worker:
+    build:
+      context: .
+      dockerfile: docker/php/Dockerfile
+    container_name: social_network_queue
+    command: php /var/www/html/queue-worker.php
+    volumes:
+      - .:/var/www/html
+    env_file:
+      - .env
+    networks:
+      - social_network
+      - docker_default
+    external_links:
+      - chatbot-db:mysql
+      - docker_default
+    depends_on:
+      - redis
+
+volumes:
+  redis_data:
+
+networks:
+  social_network:
+    driver: bridge
+  docker_default:
+    external: true
