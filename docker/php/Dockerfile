@@ -36,9 +36,10 @@ CMD ["php-fpm"]
 
 FROM base AS prod
 COPY composer.json composer.lock ./
-RUN composer install --no-interaction --prefer-dist --no-dev --optimize-autoloader --classmap-authoritative --ignore-platform-req=ext-redis
+RUN composer install --no-interaction --prefer-dist --no-dev --optimize-autoloader --ignore-platform-req=ext-redis
 COPY . .
-RUN mkdir -p /var/www/html/public/uploads/avatars /var/www/html/public/uploads/posts \
+RUN composer dump-autoload --no-dev --optimize --classmap-authoritative \
+    && mkdir -p /var/www/html/public/uploads/avatars /var/www/html/public/uploads/posts \
     && chown -R www-data:www-data /var/www/html \
     && find /var/www/html -type d -exec chmod 755 {} \; \
     && find /var/www/html -type f -exec chmod 644 {} \;

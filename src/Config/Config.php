@@ -13,7 +13,7 @@ class Config
     {
         // Load environment variables
         $dotenv = Dotenv::createImmutable(__DIR__ . '/../..');
-        $dotenv->load();
+        $dotenv->safeLoad();
 
         $this->config = [
             'app' => [

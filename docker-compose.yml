@@ -52,7 +52,6 @@ services:
       MYSQL_PASSWORD: ${DB_PASSWORD:-social_password}
     ports:
       - "3306:3306"
-    command: ["--default-authentication-plugin=mysql_native_password"]
     volumes:
       - mysql_data:/var/lib/mysql
     healthcheck:
