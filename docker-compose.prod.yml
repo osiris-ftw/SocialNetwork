@@ -3,17 +3,19 @@ services:
     build:
       context: .
       dockerfile: docker/php/Dockerfile
-      target: dev
+      target: prod
     container_name: social_network_php
-    restart: unless-stopped
+    restart: always
     env_file:
       - .env
     environment:
+      APP_ENV: production
+      APP_DEBUG: "false"
       DB_HOST: mysql
       REDIS_HOST: redis
-      PHP_OPCACHE_VALIDATE_TIMESTAMPS: 1
+      PHP_OPCACHE_VALIDATE_TIMESTAMPS: 0
     volumes:
-      - ./:/var/www/html
+      - uploads_data:/var/www/html/public/uploads
     depends_on:
       mysql:
         condition: service_healthy
@@ -25,33 +27,27 @@ services:
   nginx:
     image: nginx:1.27-alpine
     container_name: social_network_nginx
-    restart: unless-stopped
+    restart: always
     ports:
       - "8000:80"
     volumes:
-      - ./:/var/www/html
       - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./:/var/www/html:ro
+      - uploads_data:/var/www/html/public/uploads
     depends_on:
       - php
-    healthcheck:
-      test: ["CMD", "wget", "-qO", "/dev/null", "http://localhost/login.html"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
     networks:
       - social_network
 
   mysql:
     image: mysql:8.0
     container_name: social_network_mysql
-    restart: unless-stopped
+    restart: always
     environment:
       MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-root_secret}
       MYSQL_DATABASE: ${DB_DATABASE:-social_network}
       MYSQL_USER: ${DB_USERNAME:-social_user}
       MYSQL_PASSWORD: ${DB_PASSWORD:-social_password}
-    ports:
-      - "3306:3306"
     command: ["--default-authentication-plugin=mysql_native_password"]
     volumes:
       - mysql_data:/var/lib/mysql
@@ -68,9 +64,7 @@ services:
   redis:
     image: redis:7-alpine
     container_name: social_network_redis
-    restart: unless-stopped
-    ports:
-      - "6379:6379"
+    restart: always
     volumes:
       - redis_data:/data
     healthcheck:
@@ -85,9 +79,9 @@ services:
     build:
       context: .
       dockerfile: docker/php/Dockerfile
-      target: dev
+      target: prod
     container_name: social_network_websocket
-    restart: unless-stopped
+    restart: always
     env_file:
       - .env
     environment:
@@ -96,8 +90,6 @@ services:
       WEBSOCKET_HOST: 0.0.0.0
       WEBSOCKET_PORT: 8081
     command: php /var/www/html/websocket-server.php
-    volumes:
-      - ./:/var/www/html
     ports:
       - "8081:8081"
     depends_on:
@@ -112,17 +104,15 @@ services:
     build:
       context: .
       dockerfile: docker/php/Dockerfile
-      target: dev
+      target: prod
     container_name: social_network_queue
-    restart: unless-stopped
+    restart: always
     env_file:
       - .env
     environment:
       DB_HOST: mysql
       REDIS_HOST: redis
     command: php /var/www/html/queue-worker.php
-    volumes:
-      - ./:/var/www/html
     depends_on:
       mysql:
         condition: service_healthy
@@ -134,6 +124,7 @@ services:
 volumes:
   mysql_data:
   redis_data:
+  uploads_data:
 
 networks:
   social_network:

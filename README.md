@@ -41,9 +41,12 @@ A full-stack social networking platform with real-time private messaging, built 
 
 ```
 ├── docker/
-│   ├── Dockerfile              # PHP-FPM container
-│   └── nginx.conf              # Nginx configuration
-├── docker-compose.yml          # Docker orchestration
+│   ├── php/
+│   │   └── Dockerfile          # Multi-stage PHP image (dev/prod)
+│   └── nginx/
+│       └── default.conf        # Nginx configuration
+├── docker-compose.yml          # Development orchestration
+├── docker-compose.prod.yml     # Production orchestration
 ├── composer.json               # PHP dependencies
 ├── .env.example                # Environment variables template
 ├── database/
@@ -90,9 +93,8 @@ A full-stack social networking platform with real-time private messaging, built 
 │       ├── NotificationController.php
 │       ├── UploadController.php
 │       └── AdminController.php
-├── workers/
-│   ├── websocket-server.php    # WebSocket server (Ratchet)
-│   └── queue-worker.php        # Background job processor
+├── websocket-server.php        # WebSocket server (Ratchet)
+├── queue-worker.php            # Background job processor
 ├── public/
 │   ├── index.php               # API entry point
 │   ├── style.css               # Frontend styles
@@ -135,32 +137,38 @@ Edit `.env` and configure your settings (MySQL password, JWT secret, etc.):
 # Database
 DB_HOST=mysql
 DB_PORT=3306
-DB_NAME=socialnet
-DB_USER=root
-DB_PASS=your_secure_password_here
+DB_DATABASE=social_network
+DB_USERNAME=social_user
+DB_PASSWORD=your_secure_password_here
+DB_ROOT_PASSWORD=your_root_password_here
 
 # JWT
 JWT_SECRET=your_random_secret_key_here
-JWT_EXPIRES_IN=86400
 
 # WebSocket
-WS_HOST=0.0.0.0
-WS_PORT=8081
+WEBSOCKET_HOST=0.0.0.0
+WEBSOCKET_PORT=8081
 
 # Optional: Pusher (for production)
-PUSHER_ENABLED=false
 PUSHER_APP_ID=
-PUSHER_KEY=
-PUSHER_SECRET=
-PUSHER_CLUSTER=us2
+PUSHER_APP_KEY=
+PUSHER_APP_SECRET=
+PUSHER_APP_CLUSTER=mt1
+USE_PUSHER=false
 ```
 
-**Important:** Change `DB_PASS` and `JWT_SECRET` to secure random values!
+**Important:** Change `DB_PASSWORD`, `DB_ROOT_PASSWORD`, and `JWT_SECRET` to secure random values.
 
 ### 3. Start Docker Containers
 
 ```bash
-docker-compose up -d
+docker compose up -d --build
+```
+
+Production mode:
+
+```bash
+docker compose -f docker-compose.prod.yml up -d --build
 ```
 
 This starts 6 services:
@@ -174,13 +182,13 @@ This starts 6 services:
 ### 4. Install Dependencies
 
 ```bash
-docker-compose exec php composer install
+docker compose exec php composer install
 ```
 
 ### 5. Run Database Migrations
 
 ```bash
-docker-compose exec php php database/migrate.php
+docker compose exec php php database/migrate.php
 ```
 
 This creates 9 tables:
@@ -197,7 +205,7 @@ This creates 9 tables:
 ### 6. Seed Test Data (Optional)
 
 ```bash
-docker-compose exec php php database/seed.php
+docker compose exec php php database/seed.php
 ```
 
 This creates:
@@ -233,7 +241,7 @@ All 20 users have the same password: `password123`
 Check all containers are running:
 
 ```bash
-docker-compose ps
+docker compose ps
 ```
 
 Expected output:
@@ -251,25 +259,25 @@ social-network-queue       queue_worker  running
 
 **All services:**
 ```bash
-docker-compose logs -f
+docker compose logs -f
 ```
 
 **Specific service:**
 ```bash
-docker-compose logs -f websocket
-docker-compose logs -f php
-docker-compose logs -f nginx
+docker compose logs -f websocket
+docker compose logs -f php
+docker compose logs -f nginx
 ```
 
 ### Stop the Application
 
 ```bash
-docker-compose down
+docker compose down
 ```
 
 To remove volumes (deletes database data):
 ```bash
-docker-compose down -v
+docker compose down -v
 ```
 
 ## Development Workflow
@@ -282,7 +290,7 @@ docker-compose down -v
 4. For WebSocket server changes, restart the service:
 
 ```bash
-docker-compose restart websocket
+docker compose restart websocket
 ```
 
 ### Database Changes
@@ -292,14 +300,14 @@ docker-compose restart websocket
 1. Create `database/migrations/010_your_migration.sql`
 2. Run migrations:
 ```bash
-docker-compose exec php php database/migrate.php
+docker compose exec php php database/migrate.php
 ```
 
 **Reset database:**
 ```bash
-docker-compose exec mysql mysql -uroot -pyour_password -e "DROP DATABASE socialnet; CREATE DATABASE socialnet;"
-docker-compose exec php php database/migrate.php
-docker-compose exec php php database/seed.php
+docker compose exec mysql mysql -uroot -pyour_password -e "DROP DATABASE socialnet; CREATE DATABASE socialnet;"
+docker compose exec php php database/migrate.php
+docker compose exec php php database/seed.php
 ```
 
 ### Testing API Endpoints
@@ -336,13 +344,13 @@ See [API.md](API.md) for complete API documentation.
 **Check PSR-12 compliance:**
 
 ```bash
-docker-compose exec php vendor/bin/phpcs --standard=PSR12 src/
+docker compose exec php vendor/bin/phpcs --standard=PSR12 src/
 ```
 
 **Auto-fix issues:**
 
 ```bash
-docker-compose exec php vendor/bin/phpcbf --standard=PSR12 src/
+docker compose exec php vendor/bin/phpcbf --standard=PSR12 src/
 ```
 
 ## WebSocket Server
@@ -353,12 +361,12 @@ The WebSocket server runs automatically via Docker Compose.
 
 **Restart WebSocket server:**
 ```bash
-docker-compose restart websocket
+docker compose restart websocket
 ```
 
 **View WebSocket logs:**
 ```bash
-docker-compose logs -f websocket
+docker compose logs -f websocket
 ```
 
 ### Testing WebSocket Connection
@@ -395,7 +403,7 @@ ws.onmessage = (event) => {
 2. **HTTPS/WSS Setup:**
    - Use reverse proxy (Nginx/Apache) with SSL
    - Proxy WebSocket connections through SSL
-   - Update `WS_HOST` to your domain
+  - Update `WEBSOCKET_ALLOWED_ORIGINS` to your domain
 
 3. **Process Management:**
    - Use Supervisor to keep WebSocket server running
@@ -413,11 +421,11 @@ ws.onmessage = (event) => {
 
 2. **Update `.env`:**
 ```bash
-PUSHER_ENABLED=true
+USE_PUSHER=true
 PUSHER_APP_ID=your_app_id
-PUSHER_KEY=your_key
-PUSHER_SECRET=your_secret
-PUSHER_CLUSTER=us2
+PUSHER_APP_KEY=your_key
+PUSHER_APP_SECRET=your_secret
+PUSHER_APP_CLUSTER=us2
 ```
 
 3. **Update frontend:**
@@ -449,19 +457,17 @@ See `.env.example` for all available options:
 - `APP_URL` - Application URL
 
 **Database:**
-- `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASS`
+- `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD`
 
 **Redis:**
 - `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD`, `REDIS_DB`
 
 **Authentication:**
 - `JWT_SECRET` - Secret key for JWT signing
-- `JWT_EXPIRES_IN` - Token lifetime (seconds)
-- `PASSWORD_ALGO` - argon2id or bcrypt
+- `PASSWORD_HASH_ALGO` - argon2id or bcrypt
 
 **WebSocket:**
-- `WS_HOST`, `WS_PORT`
-- `WS_REDIS_CHANNEL` - Redis pub/sub channel
+- `WEBSOCKET_HOST`, `WEBSOCKET_PORT`, `WEBSOCKET_ALLOWED_ORIGINS`
 
 **Email:**
 - `MAIL_*` - SMTP configuration
@@ -481,25 +487,25 @@ See `.env.example` for all available options:
 
 ```bash
 # Check logs
-docker-compose logs
+docker compose logs
 
 # Rebuild containers
-docker-compose down
-docker-compose up -d --build
+docker compose down
+docker compose up -d --build
 ```
 
 ### Database connection failed
 
-1. Check MySQL is running: `docker-compose ps mysql`
+1. Check MySQL is running: `docker compose ps mysql`
 2. Verify credentials in `.env`
 3. Test connection:
 ```bash
-docker-compose exec mysql mysql -uroot -p$DB_PASS
+docker compose exec mysql mysql -uroot -p$DB_ROOT_PASSWORD
 ```
 
 ### WebSocket connection fails
 
-1. Check WebSocket server is running: `docker-compose logs websocket`
+1. Check WebSocket server is running: `docker compose logs websocket`
 2. Verify port 8081 is accessible
 3. Check firewall rules
 4. Test connection: `telnet localhost 8081`
@@ -508,17 +514,17 @@ docker-compose exec mysql mysql -uroot -p$DB_PASS
 
 1. Check permissions:
 ```bash
-docker-compose exec php chmod -R 777 public/uploads
+docker compose exec php chmod -R 777 public/uploads
 ```
 
 2. Verify upload limits in `.env`
-3. Check Nginx upload size in `docker/nginx.conf`
+3. Check Nginx upload size in `docker/nginx/default.conf`
 
 ### Rate limit errors
 
 Clear Redis cache:
 ```bash
-docker-compose exec redis redis-cli FLUSHDB
+docker compose exec redis redis-cli FLUSHDB
 ```
 
 ## Performance Optimization
@@ -612,7 +618,7 @@ This project is proprietary software. All rights reserved.
 For issues or questions:
 - Check [Troubleshooting](#troubleshooting) section
 - Review [API.md](API.md) for API questions
-- Check Docker logs: `docker-compose logs`
+- Check Docker logs: `docker compose logs`
 
 ## Roadmap
 
@@ -632,3 +638,4 @@ Potential future enhancements:
 ---
 
 **Built with ❤️ using PHP, MySQL, Redis, and WebSockets**
+

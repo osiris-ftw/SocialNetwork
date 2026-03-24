@@ -1,0 +1,12 @@
+.git
+.gitignore
+.env
+social_network/
+vendor/
+node_modules/
+*.log
+docker-compose*.yml
+README.md
+API.md
+TESTING.md
+PUSHER_INTEGRATION.md
