@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -29,7 +29,7 @@
             </button>
         </div>
 
-        <div class="loading" id="notif-loading">Loading notifications�</div>
+        <div class="loading" id="notif-loading">Loading notifications…</div>
         <div id="notifications-container" class="notifications-list"></div>
 
         <button id="load-more-notif-btn" class="btn btn-secondary" style="display:none; margin: 10px auto;" onclick="loadMoreNotifications()">
@@ -38,8 +38,8 @@
     </div>
 
     <script>
-        const API_URL = 'http://localhost:8000';
-        const WS_URL = 'ws://localhost:8081';
+        const API_URL = window.location.origin;
+        const WS_URL = 'ws://' + window.location.hostname + ':8081';
         let token = localStorage.getItem('token');
         let currentUser = JSON.parse(localStorage.getItem('user') || '{}');
         let ws = null;
@@ -279,3 +279,5 @@
     </script>
 </body>
 </html>
+
+

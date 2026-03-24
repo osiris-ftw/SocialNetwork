@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+ï»¿<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -74,17 +74,17 @@
                 </div>
 
                 <!-- Feed Posts -->
-                <div id="new-posts-banner" onclick="dismissNewPosts()" style="display:none;background:#1877f2;color:white;text-align:center;padding:10px 16px;border-radius:8px;margin-bottom:12px;cursor:pointer;font-weight:600;font-size:14px;">? New posts — click to load</div>
+                <div id="new-posts-banner" onclick="dismissNewPosts()" style="display:none;background:#1877f2;color:white;text-align:center;padding:10px 16px;border-radius:8px;margin-bottom:12px;cursor:pointer;font-weight:600;font-size:14px;">? New posts â€” click to load</div>
                 <div id="feed-container"></div>
-                <div class="loading" id="loading">Loading feed…</div>
+                <div class="loading" id="loading">Loading feedâ€¦</div>
                 <button id="load-more-feed-btn" class="btn btn-secondary" style="display:none; margin:10px auto;" onclick="loadMoreFeed()">Load More</button>
             </div>
         </div>
     </div>
 
     <script>
-        const API_URL = 'http://localhost:8000';
-        const WS_URL = 'ws://localhost:8081';
+        const API_URL = window.location.origin;
+        const WS_URL = 'ws://' + window.location.hostname + ':8081';
         let token = localStorage.getItem('token');
         let currentUser = JSON.parse(localStorage.getItem('user') || '{}');
         let feedOffset = 0;
@@ -343,7 +343,7 @@
             if (data && data.posts && data.posts.length > 0 && data.posts[0].id > newestPostId) {
                 const banner = document.getElementById('new-posts-banner');
                 banner.style.display = 'block';
-                banner.textContent = '? New posts available — click to load';
+                banner.textContent = '? New posts available â€” click to load';
             }
         }
 
@@ -441,3 +441,5 @@
     </script>
 </body>
 </html>
+
+

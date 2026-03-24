@@ -100,7 +100,7 @@
                             <span>Change Photo</span>
                         </div>
                     </div>
-                    <p class="ep-avatar-hint">JPG or PNG · Max 5 MB</p>
+                    <p class="ep-avatar-hint">JPG or PNG Â· Max 5 MB</p>
                 </div>
                 <input type="file" id="ep-avatar-input" accept="image/jpeg,image/png,image/webp" style="display:none;" onchange="handleAvatarPreview(this)">
 
@@ -160,8 +160,8 @@
     </div>
 
     <script>
-        const API_URL = 'http://localhost:8000';
-        const WS_URL = 'ws://localhost:8081';
+        const API_URL = window.location.origin;
+        const WS_URL = 'ws://' + window.location.hostname + ':8081';
         let token = localStorage.getItem('token');
         let currentUser = JSON.parse(localStorage.getItem('user') || '{}');
         let profileUser = null;
@@ -365,7 +365,7 @@
         function renderProfile(user) {
             document.title = `${user.display_name || user.username} - Social Network`;
 
-            // Avatar — always re-render the wrap so re-calls never hit a missing #profile-avatar
+            // Avatar â€” always re-render the wrap so re-calls never hit a missing #profile-avatar
             const avatarWrap = document.querySelector('.profile-avatar-wrap');
             if (user.avatar_url) {
                 avatarWrap.innerHTML = `<img id="profile-avatar" src="${user.avatar_url}" alt="Avatar" class="profile-avatar-lg">`;
@@ -389,10 +389,10 @@
 
             // Meta
             const meta = [];
-            if (user.location) meta.push(`📍 ${escapeHtml(user.location)}`);
-            if (user.website) meta.push(`🔗 <a href="${escapeHtml(user.website)}" target="_blank" rel="noopener">${escapeHtml(user.website)}</a>`);
-            if (user.created_at) meta.push(`📅 Joined ${new Date(user.created_at).toLocaleDateString('en-US', {month:'long', year:'numeric'})}`);
-            document.getElementById('profile-meta').innerHTML = meta.join(' · ');
+            if (user.location) meta.push(`ðŸ“ ${escapeHtml(user.location)}`);
+            if (user.website) meta.push(`ðŸ”— <a href="${escapeHtml(user.website)}" target="_blank" rel="noopener">${escapeHtml(user.website)}</a>`);
+            if (user.created_at) meta.push(`ðŸ“… Joined ${new Date(user.created_at).toLocaleDateString('en-US', {month:'long', year:'numeric'})}`);
+            document.getElementById('profile-meta').innerHTML = meta.join(' Â· ');
 
             // Stats
             const counts = user.counts || {};
@@ -500,7 +500,7 @@
         function loadMorePosts() { loadPosts(); }
 
         function createPostHTML(post) {
-            const liked = post.is_liked ? '❤️' : '🤍';
+            const liked = post.is_liked ? 'â¤ï¸' : 'ðŸ¤';
             return `
             <div class="post-card" data-post-id="${post.id}">
                 <div class="post-header">
@@ -520,13 +520,13 @@
                         ${liked} <span class="like-count">${post.like_count || 0}</span>
                     </button>
                     <button class="btn-icon" onclick="toggleComments(${post.id})" aria-label="Comments">
-                        💬 <span id="comment-count-${post.id}">${post.comment_count || 0}</span>
+                        ðŸ’¬ <span id="comment-count-${post.id}">${post.comment_count || 0}</span>
                     </button>
                 </div>
                 <div class="comments-section" id="comments-${post.id}" style="display:none;">
                     <div class="comments-list" id="comments-list-${post.id}"></div>
                     <form class="comment-form" onsubmit="submitComment(event, ${post.id})">
-                        <input type="text" class="comment-input" placeholder="Write a comment…" required aria-label="Add comment">
+                        <input type="text" class="comment-input" placeholder="Write a commentâ€¦" required aria-label="Add comment">
                         <button type="submit" class="btn-comment-submit" aria-label="Submit comment">Post</button>
                     </form>
                 </div>
@@ -541,7 +541,7 @@
             const countEl = btn.querySelector('.like-count');
             const prevCount = parseInt(countEl.textContent) || 0;
             countEl.textContent = isLiked ? prevCount - 1 : prevCount + 1;
-            btn.innerHTML = `${isLiked ? '🤍' : '❤️'} <span class="like-count">${countEl.textContent}</span>`;
+            btn.innerHTML = `${isLiked ? 'ðŸ¤' : 'â¤ï¸'} <span class="like-count">${countEl.textContent}</span>`;
             btn.dataset.liked = isLiked ? '0' : '1';
 
             const method = isLiked ? 'DELETE' : 'POST';
@@ -559,7 +559,7 @@
             if (isHidden) {
                 const listEl = document.getElementById(`comments-list-${postId}`);
                 if (!listEl.dataset.loaded) {
-                    listEl.innerHTML = '<div class="loading">Loading…</div>';
+                    listEl.innerHTML = '<div class="loading">Loadingâ€¦</div>';
                     const data = await apiCall(`/posts/${postId}/comments`);
                     listEl.dataset.loaded = '1';
                     listEl.innerHTML = '';
@@ -620,7 +620,7 @@
             if (!profileUser) return;
             document.getElementById('followers-modal').style.display = 'flex';
             const listEl = document.getElementById('followers-list');
-            listEl.innerHTML = '<div class="loading">Loading…</div>';
+            listEl.innerHTML = '<div class="loading">Loadingâ€¦</div>';
             const data = await apiCall(`/users/${profileUser.id}/followers`);
             listEl.innerHTML = '';
             if (data && data.followers) {
@@ -635,7 +635,7 @@
             if (!profileUser) return;
             document.getElementById('following-modal').style.display = 'flex';
             const listEl = document.getElementById('following-list');
-            listEl.innerHTML = '<div class="loading">Loading…</div>';
+            listEl.innerHTML = '<div class="loading">Loadingâ€¦</div>';
             const data = await apiCall(`/users/${profileUser.id}/following`);
             listEl.innerHTML = '';
             if (data && data.following) {
@@ -732,3 +732,4 @@
     </script>
 </body>
 </html>
+

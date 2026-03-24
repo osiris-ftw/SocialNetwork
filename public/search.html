@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+ï»¿<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -30,7 +30,7 @@
                 type="search"
                 id="search-input"
                 class="search-input"
-                placeholder="Search by username or bio…"
+                placeholder="Search by username or bioâ€¦"
                 autocomplete="off"
                 aria-label="Search users"
                 autofocus>
@@ -42,8 +42,8 @@
     </div>
 
     <script>
-        const API_URL = 'http://localhost:8000';
-        const WS_URL = 'ws://localhost:8081';
+        const API_URL = window.location.origin;
+        const WS_URL = 'ws://' + window.location.hostname + ':8081';
         let token = localStorage.getItem('token');
         let currentUser = JSON.parse(localStorage.getItem('user') || '{}');
         let ws = null;
@@ -96,7 +96,7 @@
                 document.getElementById('search-status').textContent = '';
                 return;
             }
-            document.getElementById('search-status').textContent = 'Searching…';
+            document.getElementById('search-status').textContent = 'Searchingâ€¦';
             debounceTimer = setTimeout(() => doSearch(q), 300);
         });
 
@@ -219,3 +219,5 @@
     </script>
 </body>
 </html>
+
+
