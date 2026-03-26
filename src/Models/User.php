@@ -157,6 +157,20 @@ class User extends BaseModel
         );
     }
 
+    public function getMutualFollows(int $userId, int $limit = 50, int $offset = 0): array
+    {
+        return $this->query(
+            "SELECT u.id, u.username, u.bio, u.avatar_url
+             FROM {$this->table} u
+             INNER JOIN follows f1 ON f1.following_id = u.id AND f1.follower_id = ?
+             INNER JOIN follows f2 ON f2.follower_id = u.id AND f2.following_id = ?
+             WHERE u.id != ?
+             ORDER BY u.username ASC
+             LIMIT {$limit} OFFSET {$offset}",
+            [$userId, $userId, $userId]
+        );
+    }
+
     public function isFollowing(int $followerId, int $followingId): bool
     {
         $result = $this->queryOne(

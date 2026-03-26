@@ -100,6 +100,14 @@ class UserController
                 }
                 break;
 
+            case 'mutuals':
+                if ($method === 'GET') {
+                    $this->getMutuals($userId);
+                } else {
+                    $this->methodNotAllowed();
+                }
+                break;
+
             case 'follow':
                 if ($method === 'POST') {
                     $this->follow($userId);
@@ -271,6 +279,26 @@ class UserController
         $following = $this->userModel->getFollowing($userId, $limit, $offset, $requesterId);
 
         echo json_encode(['following' => $following]);
+    }
+
+    private function getMutuals(int $userId): void
+    {
+        $currentUser = $this->authMiddleware->authenticate();
+        if (!$currentUser) {
+            return;
+        }
+
+        if ((int)$currentUser['id'] !== (int)$userId) {
+            http_response_code(403);
+            echo json_encode(['error' => 'Unauthorized']);
+            return;
+        }
+
+        $limit = (int)($_GET['limit'] ?? 50);
+        $offset = (int)($_GET['offset'] ?? 0);
+
+        $mutuals = $this->userModel->getMutualFollows($userId, $limit, $offset);
+        echo json_encode(['mutuals' => $mutuals]);
     }
 
     private function follow(int $targetUserId): void

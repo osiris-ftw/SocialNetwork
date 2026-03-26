@@ -25,7 +25,11 @@
         <div class="messaging-layout">
             <!-- Conversations List -->
             <div class="conversations-sidebar">
-                <h3>Messages</h3>
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+                    <h3 style="margin:0;">Messages</h3>
+                    <button id="new-chat-btn" class="btn btn-secondary btn-sm" type="button" style="width:auto;padding:6px 10px;">New Chat</button>
+                </div>
+                <div id="new-chat-panel" style="display:none;margin-top:10px;border:1px solid #e5e7eb;border-radius:10px;background:#fff;max-height:220px;overflow:auto;"></div>
                 <div id="conversations-list"></div>
             </div>
 
@@ -61,6 +65,8 @@
         let ws = null;
         let currentConversation = null;
         let lastMessageId = 0;
+        let mutualUsers = [];
+        let mutualUsersById = new Map();
 
         if (!token) { window.location.href = 'login.html'; }
 
@@ -138,18 +144,75 @@
             return `<div style="width:${size}px;height:${size}px;border-radius:50%;background:#1877f2;color:white;display:flex;align-items:center;justify-content:center;font-size:${Math.floor(size/2.2)}px;font-weight:bold;flex-shrink:0;">${initial}</div>`;
         }
 
+        async function loadMutualUsers() {
+            if (!currentUser.id) {
+                mutualUsers = [];
+                mutualUsersById = new Map();
+                renderNewChatPanel();
+                return;
+            }
+
+            const mutualData = await apiCall(`/users/${currentUser.id}/mutuals?limit=500`);
+            const mutuals = (mutualData && mutualData.mutuals) ? mutualData.mutuals : [];
+
+            mutualUsers = mutuals
+                .filter(u => Number(u.id) !== Number(currentUser.id))
+                .map(u => ({
+                    id: Number(u.id),
+                    username: u.username,
+                    avatar_url: u.avatar_url || ''
+                }));
+
+            mutualUsersById = new Map(mutualUsers.map(u => [u.id, u]));
+            renderNewChatPanel();
+        }
+
+        function renderNewChatPanel() {
+            const panel = document.getElementById('new-chat-panel');
+            if (!panel) return;
+
+            if (!mutualUsers.length) {
+                panel.innerHTML = '<div style="padding:12px;color:#777;font-size:13px;">No mutual follows yet.</div>';
+                return;
+            }
+
+            panel.innerHTML = mutualUsers.map(u => `
+                <button type="button"
+                    onclick="startNewChat(${u.id})"
+                    style="width:100%;display:flex;align-items:center;gap:10px;padding:10px;border:none;background:#fff;cursor:pointer;text-align:left;border-bottom:1px solid #f3f4f6;">
+                    ${avatarHtml(u.avatar_url, u.username, 34)}
+                    <span style="font-weight:600;">${escapeHtml(u.username)}</span>
+                </button>
+            `).join('');
+        }
+
+        function toggleNewChatPanel() {
+            const panel = document.getElementById('new-chat-panel');
+            if (!panel) return;
+            panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+        }
+
+        async function startNewChat(userId) {
+            const u = mutualUsersById.get(Number(userId));
+            if (!u) return;
+            await openConversation(u.id, u.username, u.avatar_url || '');
+            const panel = document.getElementById('new-chat-panel');
+            if (panel) panel.style.display = 'none';
+        }
+
         async function loadConversations() {
             const data = await apiCall('/messages/conversations');
             if (data && data.conversations) {
                 const list = document.getElementById('conversations-list');
                 list.innerHTML = '';
+                const visibleConversations = data.conversations.filter(conv => mutualUsersById.has(Number(conv.other_user_id)));
 
-                if (data.conversations.length === 0) {
-                    list.innerHTML = '<div style="padding:20px;color:#888;text-align:center;font-size:14px;">No conversations yet</div>';
+                if (visibleConversations.length === 0) {
+                    list.innerHTML = '<div style="padding:20px;color:#888;text-align:center;font-size:14px;">No mutual-follow conversations yet</div>';
                     return;
                 }
 
-                data.conversations.forEach(conv => {
+                visibleConversations.forEach(conv => {
                     const unreadBadge = conv.unread_count > 0 ?
                         `<span class="badge" style="margin-left:auto;">${conv.unread_count}</span>` : '';
                     const isActive = currentConversation && currentConversation.id == conv.other_user_id ? 'active' : '';
@@ -164,6 +227,27 @@
                         </div>
                     `;
                 });
+            }
+        }
+
+        async function openConversationFromParams() {
+            const params = new URLSearchParams(window.location.search);
+            const userIdParam = params.get('user_id');
+            const usernameParam = params.get('username');
+
+            if (userIdParam) {
+                const targetId = Number(userIdParam);
+                if (!targetId || !mutualUsersById.has(targetId)) return;
+                const targetUser = mutualUsersById.get(targetId);
+                await openConversation(targetUser.id, targetUser.username, targetUser.avatar_url || '');
+                return;
+            }
+
+            if (usernameParam) {
+                const normalized = usernameParam.trim().toLowerCase();
+                const targetUser = mutualUsers.find(u => (u.username || '').toLowerCase() === normalized);
+                if (!targetUser) return;
+                await openConversation(targetUser.id, targetUser.username, targetUser.avatar_url || '');
             }
         }
 
@@ -309,14 +393,26 @@
             if (b) b.textContent = (data && data.unread_count > 0) ? (data.unread_count > 99 ? '99+' : data.unread_count) : '';
         }
 
+        const newChatBtn = document.getElementById('new-chat-btn');
+        if (newChatBtn) {
+            newChatBtn.addEventListener('click', toggleNewChatPanel);
+        }
+
         // Initialize
         connectWebSocket();
-        loadConversations();
-        updateNotifBadge();
-        updateMsgBadge();
+        (async () => {
+            await loadMutualUsers();
+            await loadConversations();
+            await openConversationFromParams();
+            updateNotifBadge();
+            updateMsgBadge();
+        })();
 
         // Refresh conversations every 10 seconds, poll active chat every 5s
-        setInterval(loadConversations, 10000);
+        setInterval(async () => {
+            await loadMutualUsers();
+            await loadConversations();
+        }, 10000);
         setInterval(pollCurrentConversation, 5000);
         setInterval(updateNotifBadge, 60000);
     </script>
