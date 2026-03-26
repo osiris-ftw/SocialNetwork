@@ -39,7 +39,7 @@ FROM base AS prod
 COPY composer.json composer.lock ./
 RUN composer install --no-interaction --prefer-dist --no-dev --optimize-autoloader --ignore-platform-req=ext-redis
 COPY . .
-COPY docker/php/php-fpm-pool.conf /usr/local/etc/php-fpm.d/www.conf
+COPY docker/php/php-fpm-pool.conf /usr/local/etc/php-fpm.d/zzz-custom.conf
 RUN composer dump-autoload --no-dev --optimize --classmap-authoritative \
     && mkdir -p /var/www/html/public/uploads/avatars /var/www/html/public/uploads/posts \
     && chown -R www-data:www-data /var/www/html \
